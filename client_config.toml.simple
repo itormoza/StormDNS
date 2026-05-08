@@ -441,7 +441,8 @@ LOG_BASED_MTU_VERIFY = true
 
 # Enable or disable the local HTTP API entirely.
 # When false, the HTTP listener is not started.
-API_ENABLED = true
+# Default: false (disabled to avoid Windows Firewall prompts on first run)
+API_ENABLED = false
 
 # IP address the API server binds to.
 # Use "127.0.0.1" for local-only access (recommended).

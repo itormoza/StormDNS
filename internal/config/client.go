@@ -233,7 +233,7 @@ func defaultClientConfig() ClientConfig {
 		LogDir:                                "logs",
 		LogFileName:                           "stormdns_{time}.log",
 		StatsReportIntervalSeconds:            5.0,
-		APIEnabled:                            true,
+		APIEnabled:                            false,
 		APIListenAddress:                      "127.0.0.1",
 		APIListenPort:                         9157,
 		StartupMode:                           "logs",
