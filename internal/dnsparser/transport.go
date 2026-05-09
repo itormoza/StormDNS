@@ -236,28 +236,34 @@ func BuildTXTResponsePacket(questionPacket []byte, answerName string, answerPayl
 
 	offset := dnsHeaderSize
 	offset += copy(response[offset:], questionBytes)
-	firstAnswerNameOffset := offset
 
-	for i, payload := range answerPayloads {
-		if useAnswerNameCompression && i > 0 && firstAnswerNameOffset <= 0x3FFF {
-			binary.BigEndian.PutUint16(response[offset:offset+2], uint16(0xC000|firstAnswerNameOffset))
-			offset += 2
-		} else {
-			offset += copy(response[offset:], nameBytes)
-		}
-		binary.BigEndian.PutUint16(response[offset:offset+2], Enums.DNS_RECORD_TYPE_TXT)
-		binary.BigEndian.PutUint16(response[offset+2:offset+4], Enums.DNSQ_CLASS_IN)
-		binary.BigEndian.PutUint32(response[offset+4:offset+8], 0)
-		binary.BigEndian.PutUint16(response[offset+8:offset+10], uint16(len(payload)))
-		offset += 10
-		offset += copy(response[offset:], payload)
-	}
+	offset = writeTXTAnswers(response, offset, nameBytes, answerPayloads)
 
 	if optLen > 0 {
 		copy(response[offset:], questionPacket[optStart:optStart+optLen])
 	}
 
 	return response, nil
+}
+
+func writeTXTAnswers(buf []byte, offset int, nameBytes []byte, answerPayloads [][]byte) int {
+	useAnswerNameCompression := len(answerPayloads) > 1
+	firstAnswerNameOffset := offset
+	for i, payload := range answerPayloads {
+		if useAnswerNameCompression && i > 0 && firstAnswerNameOffset <= 0x3FFF {
+			binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(0xC000|firstAnswerNameOffset))
+			offset += 2
+		} else {
+			offset += copy(buf[offset:], nameBytes)
+		}
+		binary.BigEndian.PutUint16(buf[offset:offset+2], Enums.DNS_RECORD_TYPE_TXT)
+		binary.BigEndian.PutUint16(buf[offset+2:offset+4], Enums.DNSQ_CLASS_IN)
+		binary.BigEndian.PutUint32(buf[offset+4:offset+8], 0)
+		binary.BigEndian.PutUint16(buf[offset+8:offset+10], uint16(len(payload)))
+		offset += 10
+		offset += copy(buf[offset:], payload)
+	}
+	return offset
 }
 
 type BuildVPNResponseOptions struct {
@@ -309,7 +315,7 @@ func buildVPNTXTResponsePacket(questionPacket []byte, answerName string, packet 
 		return buildSingleTXTResponsePacket(questionPacket, answerName, buildTXTAnswerChunk(rawFrame, baseEncode))
 	}
 
-	answerPayloads, err := buildTXTAnswerChunks(rawFrame, baseEncode)
+	answerPayloads, err := buildTXTCarrierAnswers(rawFrame, baseEncode)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +408,7 @@ func ExtractVPNCarrierResponse(packet []byte, opts ExtractVPNResponseOptions) (V
 	carrierType := normalizeCarrierType(opts.CarrierType)
 	switch carrierType {
 	case Enums.DNS_RECORD_TYPE_TXT:
-		rawAnswers := extractTXTAnswerPayloads(parsed)
+		rawAnswers := extractTXTCarrierPayloads(parsed)
 		if len(rawAnswers) == 0 {
 			return VpnProto.Packet{}, ErrTXTAnswerMissing
 		}
@@ -422,7 +428,7 @@ func extractVPNTXTResponse(packet []byte, baseEncoded bool) (VpnProto.Packet, er
 		return VpnProto.Packet{}, err
 	}
 
-	rawAnswers := extractTXTAnswerPayloads(parsed)
+	rawAnswers := extractTXTCarrierPayloads(parsed)
 	if len(rawAnswers) == 0 {
 		return VpnProto.Packet{}, ErrTXTAnswerMissing
 	}
@@ -543,6 +549,10 @@ func BuildTunnelQuestionName(domain string, encodedFrame string) (string, error)
 	return name, nil
 }
 
+func buildTXTCarrierAnswers(rawFrame []byte, baseEncode bool) ([][]byte, error) {
+	return buildTXTAnswerChunks(rawFrame, baseEncode)
+}
+
 func buildTXTAnswerChunks(rawFrame []byte, baseEncode bool) ([][]byte, error) {
 	maxChunk := maxTXTAnswerPayload
 	if baseEncode {
@@ -655,6 +665,10 @@ func appendLengthPrefixedBase64TXT(data []byte) []byte {
 	out[0] = byte(encodedLen)
 	baseCodec.EncodeRawBase64Into(out[1:], data)
 	return out
+}
+
+func extractTXTCarrierPayloads(parsed Packet) [][]byte {
+	return extractTXTAnswerPayloads(parsed)
 }
 
 func extractTXTAnswerPayloads(parsed Packet) [][]byte {

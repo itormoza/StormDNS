@@ -458,3 +458,257 @@ func TestBuildTXTQuestionPacketUsesDistinctRequestIDs(t *testing.T) {
 		t.Fatalf("expected distinct request ids, got identical id %d", firstID)
 	}
 }
+
+func TestBuildAndExtractVPNCarrierResponseTXTChunked(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	payload := bytes.Repeat([]byte{0xCD}, 700)
+	response, err := BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:   7,
+		PacketType:  Enums.PACKET_MTU_DOWN_RES,
+		StreamID:    1,
+		SequenceNum: 2,
+		Payload:     payload,
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("BuildVPNCarrierResponsePacket returned error: %v", err)
+	}
+
+	packet, err := ExtractVPNCarrierResponse(response, ExtractVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if packet.PacketType != Enums.PACKET_MTU_DOWN_RES {
+		t.Fatalf("unexpected packet type: got=%d want=%d", packet.PacketType, Enums.PACKET_MTU_DOWN_RES)
+	}
+	if !bytes.Equal(packet.Payload, payload) {
+		t.Fatalf("unexpected chunked payload size: got=%d want=%d", len(packet.Payload), len(payload))
+	}
+}
+
+func TestBuildAndExtractVPNCarrierResponseTXTBase64Single(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	response, err := BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:  9,
+		PacketType: Enums.PACKET_MTU_UP_RES,
+		Payload:    []byte("challenge"),
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT, BaseEncode: true})
+	if err != nil {
+		t.Fatalf("BuildVPNCarrierResponsePacket returned error: %v", err)
+	}
+
+	packet, err := ExtractVPNCarrierResponse(response, ExtractVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT, BaseEncoded: true})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if packet.PacketType != Enums.PACKET_MTU_UP_RES {
+		t.Fatalf("unexpected packet type: got=%d want=%d", packet.PacketType, Enums.PACKET_MTU_UP_RES)
+	}
+	if !bytes.Equal(packet.Payload, []byte("challenge")) {
+		t.Fatalf("unexpected payload: got=%q", packet.Payload)
+	}
+}
+
+func TestBuildAndExtractVPNCarrierResponseTXTBase64Chunked(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	payload := bytes.Repeat([]byte{0xEF}, 700)
+	response, err := BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:   7,
+		PacketType:  Enums.PACKET_MTU_DOWN_RES,
+		StreamID:    1,
+		SequenceNum: 2,
+		Payload:     payload,
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT, BaseEncode: true})
+	if err != nil {
+		t.Fatalf("BuildVPNCarrierResponsePacket returned error: %v", err)
+	}
+
+	packet, err := ExtractVPNCarrierResponse(response, ExtractVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT, BaseEncoded: true})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if packet.PacketType != Enums.PACKET_MTU_DOWN_RES {
+		t.Fatalf("unexpected packet type: got=%d want=%d", packet.PacketType, Enums.PACKET_MTU_DOWN_RES)
+	}
+	if !bytes.Equal(packet.Payload, payload) {
+		t.Fatalf("unexpected chunked payload size: got=%d want=%d", len(packet.Payload), len(payload))
+	}
+}
+
+func TestOldAndNewAPIsProduceIdenticalVPNResponse(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	oldResponse, err := BuildVPNResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:  9,
+		PacketType: Enums.PACKET_MTU_UP_RES,
+		Payload:    bytes.Repeat([]byte{0xAB}, 700),
+	}, false)
+	if err != nil {
+		t.Fatalf("BuildVPNResponsePacket returned error: %v", err)
+	}
+
+	newResponse, err := BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:  9,
+		PacketType: Enums.PACKET_MTU_UP_RES,
+		Payload:    bytes.Repeat([]byte{0xAB}, 700),
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("BuildVPNCarrierResponsePacket returned error: %v", err)
+	}
+
+	if !bytes.Equal(oldResponse[2:], newResponse[2:]) {
+		t.Fatal("old and new API response builders produced different output")
+	}
+
+	oldPacket, err := ExtractVPNResponse(oldResponse, false)
+	if err != nil {
+		t.Fatalf("ExtractVPNResponse returned error: %v", err)
+	}
+	newPacket, err := ExtractVPNCarrierResponse(newResponse, ExtractVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if oldPacket.PacketType != newPacket.PacketType || !bytes.Equal(oldPacket.Payload, newPacket.Payload) {
+		t.Fatal("old and new extract APIs returned different packets")
+	}
+}
+
+func TestBuildTXTCarrierAnswersProducesSameOutputAsBuildTXTAnswerChunks(t *testing.T) {
+	rawFrame, err := VpnProto.BuildRaw(VpnProto.BuildOptions{
+		SessionID:   7,
+		PacketType:  Enums.PACKET_MTU_DOWN_RES,
+		StreamID:    1,
+		SequenceNum: 2,
+		Payload:     bytes.Repeat([]byte{0xCD}, 700),
+	})
+	if err != nil {
+		t.Fatalf("BuildRaw returned error: %v", err)
+	}
+
+	oldChunks, err := buildTXTAnswerChunks(rawFrame, false)
+	if err != nil {
+		t.Fatalf("buildTXTAnswerChunks returned error: %v", err)
+	}
+	newChunks, err := buildTXTCarrierAnswers(rawFrame, false)
+	if err != nil {
+		t.Fatalf("buildTXTCarrierAnswers returned error: %v", err)
+	}
+	if len(oldChunks) != len(newChunks) {
+		t.Fatalf("chunk count mismatch: old=%d new=%d", len(oldChunks), len(newChunks))
+	}
+	for i := range oldChunks {
+		if !bytes.Equal(oldChunks[i], newChunks[i]) {
+			t.Fatalf("chunk %d mismatch", i)
+		}
+	}
+
+	oldBase64Chunks, err := buildTXTAnswerChunks(rawFrame, true)
+	if err != nil {
+		t.Fatalf("buildTXTAnswerChunks(base64) returned error: %v", err)
+	}
+	newBase64Chunks, err := buildTXTCarrierAnswers(rawFrame, true)
+	if err != nil {
+		t.Fatalf("buildTXTCarrierAnswers(base64) returned error: %v", err)
+	}
+	if len(oldBase64Chunks) != len(newBase64Chunks) {
+		t.Fatalf("base64 chunk count mismatch: old=%d new=%d", len(oldBase64Chunks), len(newBase64Chunks))
+	}
+	for i := range oldBase64Chunks {
+		if !bytes.Equal(oldBase64Chunks[i], newBase64Chunks[i]) {
+			t.Fatalf("base64 chunk %d mismatch", i)
+		}
+	}
+}
+
+func TestExtractTXTCarrierPayloadsProducesSameOutputAsExtractTXTAnswerPayloads(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	payload := bytes.Repeat([]byte{0xCD}, 700)
+	response, err := BuildVPNResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:   7,
+		PacketType:  Enums.PACKET_MTU_DOWN_RES,
+		StreamID:    1,
+		SequenceNum: 2,
+		Payload:     payload,
+	}, false)
+	if err != nil {
+		t.Fatalf("BuildVPNResponsePacket returned error: %v", err)
+	}
+
+	parsed, err := ParsePacket(response)
+	if err != nil {
+		t.Fatalf("ParsePacket returned error: %v", err)
+	}
+
+	oldPayloads := extractTXTAnswerPayloads(parsed)
+	newPayloads := extractTXTCarrierPayloads(parsed)
+	if len(oldPayloads) != len(newPayloads) {
+		t.Fatalf("payload count mismatch: old=%d new=%d", len(oldPayloads), len(newPayloads))
+	}
+	for i := range oldPayloads {
+		if !bytes.Equal(oldPayloads[i], newPayloads[i]) {
+			t.Fatalf("payload %d mismatch", i)
+		}
+	}
+}
+
+func TestWriteTXTAnswersProducesParseableMultiAnswerResponse(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	rawFrame, err := VpnProto.BuildRaw(VpnProto.BuildOptions{
+		SessionID:   7,
+		PacketType:  Enums.PACKET_MTU_DOWN_RES,
+		StreamID:    1,
+		SequenceNum: 2,
+		Payload:     bytes.Repeat([]byte{0xCD}, 700),
+	})
+	if err != nil {
+		t.Fatalf("BuildRaw returned error: %v", err)
+	}
+
+	chunks, err := buildTXTAnswerChunks(rawFrame, false)
+	if err != nil {
+		t.Fatalf("buildTXTAnswerChunks returned error: %v", err)
+	}
+	if len(chunks) < 3 {
+		t.Fatalf("expected at least 3 chunks, got %d", len(chunks))
+	}
+
+	response, err := BuildTXTResponsePacket(query, "x.v.example.com", chunks)
+	if err != nil {
+		t.Fatalf("BuildTXTResponsePacket returned error: %v", err)
+	}
+
+	parsed, err := ParsePacket(response)
+	if err != nil {
+		t.Fatalf("ParsePacket returned error: %v", err)
+	}
+	if len(parsed.Answers) != len(chunks) {
+		t.Fatalf("unexpected answer count: got=%d want=%d", len(parsed.Answers), len(chunks))
+	}
+	for i, answer := range parsed.Answers {
+		if answer.Type != Enums.DNS_RECORD_TYPE_TXT {
+			t.Fatalf("answer %d has wrong type: %d", i, answer.Type)
+		}
+	}
+}
