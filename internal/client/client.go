@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -148,8 +148,8 @@ type Client struct {
 	socksRateLimit *socksRateLimiter
 
 	// HTTP API server
-	apiSrv      *http.Server
-	apiWriteCh  chan apiWriteCommand
+	apiSrv     *http.Server
+	apiWriteCh chan apiWriteCommand
 
 	// Uptime tracking (set when Run starts)
 	startedAt time.Time
@@ -207,6 +207,8 @@ type Connection struct {
 	Resolver         string
 	ResolverPort     int
 	ResolverLabel    string
+	TunnelRecordType uint16
+	TunnelRecordName string
 	Key              string
 	IsValid          bool
 	UploadMTUBytes   int
@@ -295,7 +297,7 @@ func BootstrapFromLogs(configPath string, entries []ResolverCacheEntry, override
 	mtuLookup := buildResolverCacheMTULookup(entries)
 	for i := range c.connections {
 		conn := &c.connections[i]
-		key := makeConnectionKey(conn.Resolver, conn.ResolverPort, conn.Domain)
+		key := makeConnectionKey(conn.Resolver, conn.ResolverPort, conn.Domain, conn.TunnelRecordType)
 		if e, ok := mtuLookup[key]; ok && e.UploadMTU > 0 && e.DownloadMTU > 0 {
 			conn.IsValid = true
 			conn.UploadMTUBytes = e.UploadMTU
@@ -317,7 +319,7 @@ func BootstrapFromLogs(configPath string, entries []ResolverCacheEntry, override
 func buildResolverCacheMTULookup(entries []ResolverCacheEntry) map[string]ResolverCacheEntry {
 	lookup := make(map[string]ResolverCacheEntry, len(entries))
 	for _, e := range entries {
-		key := makeConnectionKey(e.IP, e.Port, e.Domain)
+		key := makeConnectionKey(e.IP, e.Port, e.Domain, e.TunnelRecordType)
 		if existing, ok := lookup[key]; !ok || e.LastSeen.After(existing.LastSeen) {
 			lookup[key] = e
 		}

@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -91,6 +91,7 @@ func (c *Client) runFullMTUTests(ctx context.Context) error {
 
 	counters := &mtuScanCounters{}
 	c.runAllMTUProbeWorkers(ctx, uploadCaps, workerCount, counters, nil)
+	c.selectBestAutoCarrierConnections()
 
 	c.balancer.RefreshValidConnections()
 	validConns, minUpload, minDownload, minUploadChars := summarizeValidMTUConnections(c.connections)
@@ -105,6 +106,74 @@ func (c *Client) runFullMTUTests(ctx context.Context) error {
 	c.initResolverRecheckMeta()
 	c.logMTUCompletion(validConns)
 	return nil
+}
+
+func (c *Client) selectBestAutoCarrierConnections() {
+	if c == nil || !c.cfg.TunnelDNSRecordAuto || len(c.connections) == 0 {
+		return
+	}
+
+	order := make(map[uint16]int, len(c.cfg.TunnelAutoRecordTypes))
+	for idx, qType := range c.cfg.TunnelAutoRecordTypes {
+		if _, exists := order[qType]; !exists {
+			order[qType] = idx
+		}
+	}
+
+	bestByFamily := make(map[string]int, len(c.connections))
+	for idx := range c.connections {
+		conn := &c.connections[idx]
+		if !conn.IsValid {
+			continue
+		}
+		familyKey := makeConnectionFamilyKey(conn.Resolver, conn.ResolverPort, conn.Domain)
+		bestIdx, exists := bestByFamily[familyKey]
+		if !exists || autoCarrierCandidateIsBetter(*conn, c.connections[bestIdx], order) {
+			bestByFamily[familyKey] = idx
+		}
+	}
+	if len(bestByFamily) == 0 {
+		return
+	}
+
+	selected := make(map[int]struct{}, len(bestByFamily))
+	for _, idx := range bestByFamily {
+		selected[idx] = struct{}{}
+	}
+	for idx := range c.connections {
+		if !c.connections[idx].IsValid {
+			continue
+		}
+		if _, ok := selected[idx]; !ok {
+			c.connections[idx].IsValid = false
+		}
+	}
+}
+
+func autoCarrierCandidateIsBetter(candidate Connection, current Connection, order map[uint16]int) bool {
+	if candidate.DownloadMTUBytes != current.DownloadMTUBytes {
+		return candidate.DownloadMTUBytes > current.DownloadMTUBytes
+	}
+	if candidate.UploadMTUBytes != current.UploadMTUBytes {
+		return candidate.UploadMTUBytes > current.UploadMTUBytes
+	}
+	if candidate.MTUResolveTime > 0 && current.MTUResolveTime > 0 && candidate.MTUResolveTime != current.MTUResolveTime {
+		return candidate.MTUResolveTime < current.MTUResolveTime
+	}
+	if candidate.MTUResolveTime > 0 && current.MTUResolveTime == 0 {
+		return true
+	}
+	if candidate.MTUResolveTime == 0 && current.MTUResolveTime > 0 {
+		return false
+	}
+	return carrierOrder(candidate.TunnelRecordType, order) < carrierOrder(current.TunnelRecordType, order)
+}
+
+func carrierOrder(qType uint16, order map[uint16]int) int {
+	if idx, ok := order[qType]; ok {
+		return idx
+	}
+	return len(order) + 1
 }
 
 // runAllMTUProbeWorkers dispatches MTU probe jobs to workers. When onValid is
@@ -495,7 +564,7 @@ func (c *Client) sendUploadMTUProbe(ctx context.Context, conn *Connection, probe
 		return false, 0, err
 	}
 
-	query, err := c.buildMTUProbeQuery(conn.Domain, Enums.PACKET_MTU_UP_REQ, payload)
+	query, err := c.buildMTUProbeQuery(conn.Domain, conn.TunnelRecordType, Enums.PACKET_MTU_UP_REQ, payload)
 	if err != nil {
 		return false, 0, nil
 	}
@@ -515,7 +584,11 @@ func (c *Client) sendUploadMTUProbe(ctx context.Context, conn *Connection, probe
 	}
 	rtt := time.Since(startedAt)
 
-	packet, err := DnsParser.ExtractVPNResponse(response, useBase64)
+	packet, err := DnsParser.ExtractVPNCarrierResponse(response, DnsParser.ExtractVPNResponseOptions{
+		CarrierType: conn.TunnelRecordType,
+		PrivateType: uint16(c.cfg.TunnelPrivateRecordType),
+		BaseEncoded: useBase64,
+	})
 	if err != nil {
 		c.logMTUProbe(
 			options.IsRetry,
@@ -609,7 +682,7 @@ func (c *Client) sendDownloadMTUProbe(ctx context.Context, conn *Connection, pro
 	}
 	binary.BigEndian.PutUint16(payload[1+mtuProbeCodeLength:1+mtuProbeCodeLength+2], uint16(effectiveDownloadSize))
 
-	query, err := c.buildMTUProbeQuery(conn.Domain, Enums.PACKET_MTU_DOWN_REQ, payload)
+	query, err := c.buildMTUProbeQuery(conn.Domain, conn.TunnelRecordType, Enums.PACKET_MTU_DOWN_REQ, payload)
 	if err != nil {
 		return false, 0, nil
 	}
@@ -629,7 +702,11 @@ func (c *Client) sendDownloadMTUProbe(ctx context.Context, conn *Connection, pro
 	}
 	rtt := time.Since(startedAt)
 
-	packet, err := DnsParser.ExtractVPNResponse(response, useBase64)
+	packet, err := DnsParser.ExtractVPNCarrierResponse(response, DnsParser.ExtractVPNResponseOptions{
+		CarrierType: conn.TunnelRecordType,
+		PrivateType: uint16(c.cfg.TunnelPrivateRecordType),
+		BaseEncoded: useBase64,
+	})
 	if err != nil {
 		c.logMTUProbe(
 			options.IsRetry,
@@ -709,8 +786,8 @@ func (c *Client) sendDownloadMTUProbe(ctx context.Context, conn *Connection, pro
 	return ok, rtt, nil
 }
 
-func (c *Client) buildMTUProbeQuery(domain string, packetType uint8, payload []byte) ([]byte, error) {
-	return c.buildTunnelTXTQueryRaw(domain, VpnProto.BuildOptions{
+func (c *Client) buildMTUProbeQuery(domain string, qType uint16, packetType uint8, payload []byte) ([]byte, error) {
+	return c.buildTunnelQueryRaw(domain, qType, VpnProto.BuildOptions{
 		SessionID:      255,
 		PacketType:     packetType,
 		StreamID:       1,

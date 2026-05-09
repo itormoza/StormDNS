@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -23,74 +23,79 @@ import (
 )
 
 type ServerConfig struct {
-	ConfigDir                         string   `toml:"-"`
-	ConfigPath                        string   `toml:"-"`
-	ProtocolType                      string   `toml:"PROTOCOL_TYPE"`
-	UDPHost                           string   `toml:"UDP_HOST"`
-	UDPPort                           int      `toml:"UDP_PORT"`
-	UDPReaders                        int      `toml:"UDP_READERS"`
-	SocketBufferSize                  int      `toml:"SOCKET_BUFFER_SIZE"`
-	MaxConcurrentRequests             int      `toml:"MAX_CONCURRENT_REQUESTS"`
-	DNSRequestWorkers                 int      `toml:"DNS_REQUEST_WORKERS"`
-	DeferredSessionWorkers            int      `toml:"DEFERRED_SESSION_WORKERS"`
-	DeferredSessionQueueLimit         int      `toml:"DEFERRED_SESSION_QUEUE_LIMIT"`
-	SessionOrphanQueueInitialCap      int      `toml:"SESSION_ORPHAN_QUEUE_INITIAL_CAPACITY"`
-	StreamQueueInitialCapacity        int      `toml:"STREAM_QUEUE_INITIAL_CAPACITY"`
-	DNSFragmentStoreCapacity          int      `toml:"DNS_FRAGMENT_STORE_CAPACITY"`
-	SOCKS5FragmentStoreCapacity       int      `toml:"SOCKS5_FRAGMENT_STORE_CAPACITY"`
-	MaxPacketSize                     int      `toml:"MAX_PACKET_SIZE"`
-	MaxStreamsPerSession              int      `toml:"MAX_STREAMS_PER_SESSION"`
-	MaxDNSResponseBytes               int      `toml:"MAX_DNS_RESPONSE_BYTES"`
-	DropLogIntervalSecs               float64  `toml:"DROP_LOG_INTERVAL_SECONDS"`
-	InvalidCookieWindowSecs           float64  `toml:"INVALID_COOKIE_WINDOW_SECONDS"`
-	InvalidCookieErrorThreshold       int      `toml:"INVALID_COOKIE_ERROR_THRESHOLD"`
-	SessionTimeoutSecs                float64  `toml:"SESSION_TIMEOUT_SECONDS"`
-	SessionCleanupIntervalSecs        float64  `toml:"SESSION_CLEANUP_INTERVAL_SECONDS"`
-	ClosedSessionRetentionSecs        float64  `toml:"CLOSED_SESSION_RETENTION_SECONDS"`
-	SessionInitReuseTTLSeconds        float64  `toml:"SESSION_INIT_REUSE_TTL_SECONDS"`
-	RecentlyClosedStreamTTLSeconds    float64  `toml:"RECENTLY_CLOSED_STREAM_TTL_SECONDS"`
-	RecentlyClosedStreamCap           int      `toml:"RECENTLY_CLOSED_STREAM_CAP"`
-	TerminalStreamRetentionSeconds    float64  `toml:"TERMINAL_STREAM_RETENTION_SECONDS"`
-	MaxPacketsPerBatch                int      `toml:"MAX_PACKETS_PER_BATCH"`
-	PacketBlockControlDuplication     int      `toml:"PACKET_BLOCK_CONTROL_DUPLICATION"`
-	DNSUpstreamServers                []string `toml:"DNS_UPSTREAM_SERVERS"`
-	DNSUpstreamTimeoutSecs            float64  `toml:"DNS_UPSTREAM_TIMEOUT"`
-	DNSInflightWaitTimeoutSecs        float64  `toml:"DNS_INFLIGHT_WAIT_TIMEOUT_SECONDS"`
-	SOCKSConnectTimeoutSecs           float64  `toml:"SOCKS_CONNECT_TIMEOUT"`
-	DNSFragmentAssemblyTimeoutSecs    float64  `toml:"DNS_FRAGMENT_ASSEMBLY_TIMEOUT"`
-	StreamSetupAckTTLSeconds          float64  `toml:"STREAM_SETUP_ACK_TTL_SECONDS"`
-	StreamResultPacketTTLSeconds      float64  `toml:"STREAM_RESULT_PACKET_TTL_SECONDS"`
-	StreamFailurePacketTTLSeconds     float64  `toml:"STREAM_FAILURE_PACKET_TTL_SECONDS"`
-	DNSCacheMaxRecords                int      `toml:"DNS_CACHE_MAX_RECORDS"`
-	DNSCacheTTLSeconds                float64  `toml:"DNS_CACHE_TTL_SECONDS"`
-	UseExternalSOCKS5                 bool     `toml:"USE_EXTERNAL_SOCKS5"`
-	SOCKS5Auth                        bool     `toml:"SOCKS5_AUTH"`
-	SOCKS5User                        string   `toml:"SOCKS5_USER"`
-	SOCKS5Pass                        string   `toml:"SOCKS5_PASS"`
-	ForwardIP                         string   `toml:"FORWARD_IP"`
-	ForwardPort                       int      `toml:"FORWARD_PORT"`
-	Domain                            []string `toml:"DOMAIN"`
-	MinVPNLabelLength                 int      `toml:"MIN_VPN_LABEL_LENGTH"`
-	SupportedUploadCompressionTypes   []int    `toml:"SUPPORTED_UPLOAD_COMPRESSION_TYPES"`
-	SupportedDownloadCompressionTypes []int    `toml:"SUPPORTED_DOWNLOAD_COMPRESSION_TYPES"`
-	DataEncryptionMethod              int      `toml:"DATA_ENCRYPTION_METHOD"`
-	EncryptionKeyFile                 string   `toml:"ENCRYPTION_KEY_FILE"`
-	LogLevel                          string   `toml:"LOG_LEVEL"`
-	ARQWindowSize                     int      `toml:"ARQ_WINDOW_SIZE"`
-	ARQInitialRTOSeconds              float64  `toml:"ARQ_INITIAL_RTO_SECONDS"`
-	ARQMaxRTOSeconds                  float64  `toml:"ARQ_MAX_RTO_SECONDS"`
-	ARQControlInitialRTOSeconds       float64  `toml:"ARQ_CONTROL_INITIAL_RTO_SECONDS"`
-	ARQControlMaxRTOSeconds           float64  `toml:"ARQ_CONTROL_MAX_RTO_SECONDS"`
-	ARQMaxControlRetries              int      `toml:"ARQ_MAX_CONTROL_RETRIES"`
-	ARQInactivityTimeoutSeconds       float64  `toml:"ARQ_INACTIVITY_TIMEOUT_SECONDS"`
-	ARQDataPacketTTLSeconds           float64  `toml:"ARQ_DATA_PACKET_TTL_SECONDS"`
-	ARQControlPacketTTLSeconds        float64  `toml:"ARQ_CONTROL_PACKET_TTL_SECONDS"`
-	ARQMaxDataRetries                 int      `toml:"ARQ_MAX_DATA_RETRIES"`
-	ARQDataNackMaxGap                 int      `toml:"ARQ_DATA_NACK_MAX_GAP"`
-	ARQDataNackInitialDelaySeconds    float64  `toml:"ARQ_DATA_NACK_INITIAL_DELAY_SECONDS"`
-	ARQDataNackRepeatSeconds          float64  `toml:"ARQ_DATA_NACK_REPEAT_SECONDS"`
-	ARQTerminalDrainTimeoutSec        float64  `toml:"ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS"`
-	ARQTerminalAckWaitTimeoutSec      float64  `toml:"ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS"`
+	ConfigDir                         string              `toml:"-"`
+	ConfigPath                        string              `toml:"-"`
+	ProtocolType                      string              `toml:"PROTOCOL_TYPE"`
+	UDPHost                           string              `toml:"UDP_HOST"`
+	UDPPort                           int                 `toml:"UDP_PORT"`
+	UDPReaders                        int                 `toml:"UDP_READERS"`
+	SocketBufferSize                  int                 `toml:"SOCKET_BUFFER_SIZE"`
+	MaxConcurrentRequests             int                 `toml:"MAX_CONCURRENT_REQUESTS"`
+	DNSRequestWorkers                 int                 `toml:"DNS_REQUEST_WORKERS"`
+	DeferredSessionWorkers            int                 `toml:"DEFERRED_SESSION_WORKERS"`
+	DeferredSessionQueueLimit         int                 `toml:"DEFERRED_SESSION_QUEUE_LIMIT"`
+	SessionOrphanQueueInitialCap      int                 `toml:"SESSION_ORPHAN_QUEUE_INITIAL_CAPACITY"`
+	StreamQueueInitialCapacity        int                 `toml:"STREAM_QUEUE_INITIAL_CAPACITY"`
+	DNSFragmentStoreCapacity          int                 `toml:"DNS_FRAGMENT_STORE_CAPACITY"`
+	SOCKS5FragmentStoreCapacity       int                 `toml:"SOCKS5_FRAGMENT_STORE_CAPACITY"`
+	MaxPacketSize                     int                 `toml:"MAX_PACKET_SIZE"`
+	MaxStreamsPerSession              int                 `toml:"MAX_STREAMS_PER_SESSION"`
+	MaxDNSResponseBytes               int                 `toml:"MAX_DNS_RESPONSE_BYTES"`
+	DropLogIntervalSecs               float64             `toml:"DROP_LOG_INTERVAL_SECONDS"`
+	InvalidCookieWindowSecs           float64             `toml:"INVALID_COOKIE_WINDOW_SECONDS"`
+	InvalidCookieErrorThreshold       int                 `toml:"INVALID_COOKIE_ERROR_THRESHOLD"`
+	SessionTimeoutSecs                float64             `toml:"SESSION_TIMEOUT_SECONDS"`
+	SessionCleanupIntervalSecs        float64             `toml:"SESSION_CLEANUP_INTERVAL_SECONDS"`
+	ClosedSessionRetentionSecs        float64             `toml:"CLOSED_SESSION_RETENTION_SECONDS"`
+	SessionInitReuseTTLSeconds        float64             `toml:"SESSION_INIT_REUSE_TTL_SECONDS"`
+	RecentlyClosedStreamTTLSeconds    float64             `toml:"RECENTLY_CLOSED_STREAM_TTL_SECONDS"`
+	RecentlyClosedStreamCap           int                 `toml:"RECENTLY_CLOSED_STREAM_CAP"`
+	TerminalStreamRetentionSeconds    float64             `toml:"TERMINAL_STREAM_RETENTION_SECONDS"`
+	MaxPacketsPerBatch                int                 `toml:"MAX_PACKETS_PER_BATCH"`
+	PacketBlockControlDuplication     int                 `toml:"PACKET_BLOCK_CONTROL_DUPLICATION"`
+	DNSUpstreamServers                []string            `toml:"DNS_UPSTREAM_SERVERS"`
+	DNSUpstreamTimeoutSecs            float64             `toml:"DNS_UPSTREAM_TIMEOUT"`
+	DNSInflightWaitTimeoutSecs        float64             `toml:"DNS_INFLIGHT_WAIT_TIMEOUT_SECONDS"`
+	SOCKSConnectTimeoutSecs           float64             `toml:"SOCKS_CONNECT_TIMEOUT"`
+	DNSFragmentAssemblyTimeoutSecs    float64             `toml:"DNS_FRAGMENT_ASSEMBLY_TIMEOUT"`
+	StreamSetupAckTTLSeconds          float64             `toml:"STREAM_SETUP_ACK_TTL_SECONDS"`
+	StreamResultPacketTTLSeconds      float64             `toml:"STREAM_RESULT_PACKET_TTL_SECONDS"`
+	StreamFailurePacketTTLSeconds     float64             `toml:"STREAM_FAILURE_PACKET_TTL_SECONDS"`
+	DNSCacheMaxRecords                int                 `toml:"DNS_CACHE_MAX_RECORDS"`
+	DNSCacheTTLSeconds                float64             `toml:"DNS_CACHE_TTL_SECONDS"`
+	UseExternalSOCKS5                 bool                `toml:"USE_EXTERNAL_SOCKS5"`
+	SOCKS5Auth                        bool                `toml:"SOCKS5_AUTH"`
+	SOCKS5User                        string              `toml:"SOCKS5_USER"`
+	SOCKS5Pass                        string              `toml:"SOCKS5_PASS"`
+	ForwardIP                         string              `toml:"FORWARD_IP"`
+	ForwardPort                       int                 `toml:"FORWARD_PORT"`
+	Domain                            []string            `toml:"DOMAIN"`
+	MinVPNLabelLength                 int                 `toml:"MIN_VPN_LABEL_LENGTH"`
+	TunnelDNSRecordTypes              []string            `toml:"TUNNEL_DNS_RECORD_TYPES"`
+	TunnelPrivateRecordType           int                 `toml:"TUNNEL_PRIVATE_RECORD_TYPE"`
+	TunnelRecordTypes                 []uint16            `toml:"-"`
+	TunnelRecordTypeSet               map[uint16]struct{} `toml:"-"`
+	TunnelRecordNames                 []string            `toml:"-"`
+	SupportedUploadCompressionTypes   []int               `toml:"SUPPORTED_UPLOAD_COMPRESSION_TYPES"`
+	SupportedDownloadCompressionTypes []int               `toml:"SUPPORTED_DOWNLOAD_COMPRESSION_TYPES"`
+	DataEncryptionMethod              int                 `toml:"DATA_ENCRYPTION_METHOD"`
+	EncryptionKeyFile                 string              `toml:"ENCRYPTION_KEY_FILE"`
+	LogLevel                          string              `toml:"LOG_LEVEL"`
+	ARQWindowSize                     int                 `toml:"ARQ_WINDOW_SIZE"`
+	ARQInitialRTOSeconds              float64             `toml:"ARQ_INITIAL_RTO_SECONDS"`
+	ARQMaxRTOSeconds                  float64             `toml:"ARQ_MAX_RTO_SECONDS"`
+	ARQControlInitialRTOSeconds       float64             `toml:"ARQ_CONTROL_INITIAL_RTO_SECONDS"`
+	ARQControlMaxRTOSeconds           float64             `toml:"ARQ_CONTROL_MAX_RTO_SECONDS"`
+	ARQMaxControlRetries              int                 `toml:"ARQ_MAX_CONTROL_RETRIES"`
+	ARQInactivityTimeoutSeconds       float64             `toml:"ARQ_INACTIVITY_TIMEOUT_SECONDS"`
+	ARQDataPacketTTLSeconds           float64             `toml:"ARQ_DATA_PACKET_TTL_SECONDS"`
+	ARQControlPacketTTLSeconds        float64             `toml:"ARQ_CONTROL_PACKET_TTL_SECONDS"`
+	ARQMaxDataRetries                 int                 `toml:"ARQ_MAX_DATA_RETRIES"`
+	ARQDataNackMaxGap                 int                 `toml:"ARQ_DATA_NACK_MAX_GAP"`
+	ARQDataNackInitialDelaySeconds    float64             `toml:"ARQ_DATA_NACK_INITIAL_DELAY_SECONDS"`
+	ARQDataNackRepeatSeconds          float64             `toml:"ARQ_DATA_NACK_REPEAT_SECONDS"`
+	ARQTerminalDrainTimeoutSec        float64             `toml:"ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS"`
+	ARQTerminalAckWaitTimeoutSec      float64             `toml:"ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS"`
 }
 
 type ServerConfigOverrides struct {
@@ -151,6 +156,8 @@ func defaultServerConfig() ServerConfig {
 		ForwardPort:                       1080,
 		Domain:                            nil,
 		MinVPNLabelLength:                 3,
+		TunnelDNSRecordTypes:              []string{"TXT"},
+		TunnelPrivateRecordType:           65280,
 		SupportedUploadCompressionTypes:   []int{0, 3},
 		SupportedDownloadCompressionTypes: []int{0, 3},
 		DataEncryptionMethod:              1,
@@ -368,6 +375,10 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 
 	if cfg.MinVPNLabelLength <= 0 {
 		cfg.MinVPNLabelLength = 3
+	}
+
+	if err := normalizeServerTunnelCarrierConfig(&cfg); err != nil {
+		return cfg, err
 	}
 
 	cfg.SupportedUploadCompressionTypes = normalizeCompressionTypeList(cfg.SupportedUploadCompressionTypes)

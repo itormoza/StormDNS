@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -60,7 +60,7 @@ func (c *Client) initializeSessionOnce() error {
 		return err
 	}
 
-	query, err := c.buildSessionQuery(conn.Domain, Enums.PACKET_SESSION_INIT, initPayload)
+	query, err := c.buildSessionQuery(conn, Enums.PACKET_SESSION_INIT, initPayload)
 	if err != nil {
 		return ErrSessionInitFailed
 	}
@@ -200,12 +200,12 @@ func (c *Client) sessionInitBusyUntil() time.Time {
 	return time.Unix(0, unixNano)
 }
 
-func (c *Client) buildSessionQuery(domain string, packetType uint8, payload []byte) ([]byte, error) {
-	return c.buildTunnelQuery(domain, 0, packetType, payload)
+func (c *Client) buildSessionQuery(conn Connection, packetType uint8, payload []byte) ([]byte, error) {
+	return c.buildTunnelPacketQuery(conn.Domain, conn.TunnelRecordType, 0, packetType, payload)
 }
 
-func (c *Client) buildTunnelQuery(domain string, sessionID uint8, packetType uint8, payload []byte) ([]byte, error) {
-	return c.buildTunnelTXTQueryRaw(domain, VpnProto.BuildOptions{
+func (c *Client) buildTunnelPacketQuery(domain string, qType uint16, sessionID uint8, packetType uint8, payload []byte) ([]byte, error) {
+	return c.buildTunnelQueryRaw(domain, qType, VpnProto.BuildOptions{
 		SessionID:  sessionID,
 		PacketType: packetType,
 		Payload:    payload,
@@ -301,7 +301,7 @@ func (c *Client) sendSessionCloseRound(targets []Connection, deadline time.Time)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			query, err := c.buildTunnelTXTQueryRaw(conn.Domain, VpnProto.BuildOptions{
+			query, err := c.buildTunnelQueryRaw(conn.Domain, conn.TunnelRecordType, VpnProto.BuildOptions{
 				SessionID:     c.sessionID,
 				SessionCookie: c.sessionCookie,
 				PacketType:    Enums.PACKET_SESSION_CLOSE,

@@ -15,6 +15,12 @@
 # Must match client DOMAINS.
 DOMAIN = ["v.domain.com"]
 
+# Accepted DNS record carriers for tunnel traffic.
+# TXT is the default and currently implemented carrier.
+# Use ["AUTO"] to accept all carriers implemented by this build.
+TUNNEL_DNS_RECORD_TYPES = ["TXT"]
+TUNNEL_PRIVATE_RECORD_TYPE = 65280
+
 # How this server should handle new connections.
 # Allowed values:
 # "SOCKS5" = the client/program chooses the destination for each connection.

@@ -18,6 +18,15 @@
 # All domains must be handled by the same server. Do not use different domains across multiple servers.
 DOMAINS = ["v.domain.com"]
 
+# DNS record carrier selection for tunnel queries and responses.
+# TXT is the default and currently implemented carrier.
+# Use "AUTO" to scan implemented carriers per resolver/domain as more carriers
+# are added. The list below is intentionally ordered and future-facing; carriers
+# not implemented by this build are skipped in AUTO mode.
+TUNNEL_DNS_RECORD_TYPE = "TXT"
+TUNNEL_DNS_AUTO_RECORD_TYPES = ["TXT", "CNAME", "AAAA", "A", "MX", "SRV", "NULL", "PRIVATE", "CAA"]
+TUNNEL_PRIVATE_RECORD_TYPE = 65280
+
 # Encryption method for tunnel payloads.
 # Allowed values:
 # 0 = None

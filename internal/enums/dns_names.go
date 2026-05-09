@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -19,6 +19,8 @@ func DNSRecordTypeName(qType uint16) string {
 		return "CNAME"
 	case DNS_RECORD_TYPE_MX:
 		return "MX"
+	case DNS_RECORD_TYPE_NULL:
+		return "NULL"
 	case DNS_RECORD_TYPE_NS:
 		return "NS"
 	case DNS_RECORD_TYPE_PTR:

@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -76,16 +76,16 @@ func BuildTXTQuestionPacket(name string, qType uint16, ednsUDPSize uint16) ([]by
 	return packet, nil
 }
 
-func BuildTunnelTXTQuestionPacket(domain string, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
+func BuildTunnelQuestionPacket(domain string, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
 	normalizedDomain, domainQname, err := PrepareTunnelDomainQname(domain)
 	if err != nil {
 		return nil, err
 	}
 
-	return BuildTunnelTXTQuestionPacketPrepared(normalizedDomain, domainQname, encodedFrame, qType, ednsUDPSize)
+	return BuildTunnelQuestionPacketPrepared(normalizedDomain, domainQname, encodedFrame, qType, ednsUDPSize)
 }
 
-func BuildTunnelTXTQuestionPacketPrepared(normalizedDomain string, domainQname []byte, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
+func BuildTunnelQuestionPacketPrepared(normalizedDomain string, domainQname []byte, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
 	if normalizedDomain == "" || len(domainQname) == 0 {
 		return nil, ErrInvalidName
 	}
@@ -139,6 +139,14 @@ func BuildTunnelTXTQuestionPacketPrepared(normalizedDomain string, domainQname [
 	}
 
 	return packet, nil
+}
+
+func BuildTunnelTXTQuestionPacket(domain string, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
+	return BuildTunnelQuestionPacket(domain, encodedFrame, qType, ednsUDPSize)
+}
+
+func BuildTunnelTXTQuestionPacketPrepared(normalizedDomain string, domainQname []byte, encodedFrame []byte, qType uint16, ednsUDPSize uint16) ([]byte, error) {
+	return BuildTunnelQuestionPacketPrepared(normalizedDomain, domainQname, encodedFrame, qType, ednsUDPSize)
 }
 
 func PrepareTunnelDomainQname(domain string) (string, []byte, error) {
@@ -252,7 +260,31 @@ func BuildTXTResponsePacket(questionPacket []byte, answerName string, answerPayl
 	return response, nil
 }
 
+type BuildVPNResponseOptions struct {
+	CarrierType uint16
+	PrivateType uint16
+	BaseEncode  bool
+}
+
+func BuildVPNCarrierResponsePacket(questionPacket []byte, answerName string, packet VpnProto.Packet, opts BuildVPNResponseOptions) ([]byte, error) {
+	carrierType := normalizeCarrierType(opts.CarrierType)
+	switch carrierType {
+	case Enums.DNS_RECORD_TYPE_TXT:
+		response, err := buildVPNTXTResponsePacket(questionPacket, answerName, packet, opts.BaseEncode)
+		if errors.Is(err, ErrTXTAnswerTooLarge) {
+			return nil, ErrCarrierPayloadTooLarge
+		}
+		return response, err
+	default:
+		return nil, ErrUnsupportedCarrier
+	}
+}
+
 func BuildVPNResponsePacket(questionPacket []byte, answerName string, packet VpnProto.Packet, baseEncode bool) ([]byte, error) {
+	return buildVPNTXTResponsePacket(questionPacket, answerName, packet, baseEncode)
+}
+
+func buildVPNTXTResponsePacket(questionPacket []byte, answerName string, packet VpnProto.Packet, baseEncode bool) ([]byte, error) {
 	rawFrame, err := VpnProto.BuildRawAuto(VpnProto.BuildOptions{
 		SessionID:       packet.SessionID,
 		PacketType:      packet.PacketType,
@@ -355,7 +387,36 @@ func sameDNSName(a string, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
+type ExtractVPNResponseOptions struct {
+	CarrierType uint16
+	PrivateType uint16
+	BaseEncoded bool
+}
+
+func ExtractVPNCarrierResponse(packet []byte, opts ExtractVPNResponseOptions) (VpnProto.Packet, error) {
+	parsed, err := ParsePacket(packet)
+	if err != nil {
+		return VpnProto.Packet{}, err
+	}
+
+	carrierType := normalizeCarrierType(opts.CarrierType)
+	switch carrierType {
+	case Enums.DNS_RECORD_TYPE_TXT:
+		rawAnswers := extractTXTAnswerPayloads(parsed)
+		if len(rawAnswers) == 0 {
+			return VpnProto.Packet{}, ErrTXTAnswerMissing
+		}
+		return assembleVPNResponse(rawAnswers, opts.BaseEncoded)
+	default:
+		return VpnProto.Packet{}, ErrUnsupportedCarrier
+	}
+}
+
 func ExtractVPNResponse(packet []byte, baseEncoded bool) (VpnProto.Packet, error) {
+	return extractVPNTXTResponse(packet, baseEncoded)
+}
+
+func extractVPNTXTResponse(packet []byte, baseEncoded bool) (VpnProto.Packet, error) {
 	parsed, err := ParsePacket(packet)
 	if err != nil {
 		return VpnProto.Packet{}, err
@@ -367,6 +428,13 @@ func ExtractVPNResponse(packet []byte, baseEncoded bool) (VpnProto.Packet, error
 	}
 
 	return assembleVPNResponse(rawAnswers, baseEncoded)
+}
+
+func normalizeCarrierType(qType uint16) uint16 {
+	if qType == 0 {
+		return Enums.DNS_RECORD_TYPE_TXT
+	}
+	return qType
 }
 
 func DescribeResponseWithoutTunnelPayload(packet []byte) string {

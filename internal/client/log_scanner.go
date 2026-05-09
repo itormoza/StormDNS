@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -21,16 +21,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	DnsParser "stormdns-go/internal/dnsparser"
+	Enums "stormdns-go/internal/enums"
 )
 
 // ResolverCacheEntry represents a resolver+domain pair recovered from one or
 // more resolver cache log files.
 type ResolverCacheEntry struct {
-	IP          string
-	Port        int
-	Domain      string
-	UploadMTU   int
-	DownloadMTU int
+	IP               string
+	Port             int
+	Domain           string
+	TunnelRecordType uint16
+	TunnelRecordName string
+	UploadMTU        int
+	DownloadMTU      int
 	// LastSeen is the timestamp of the most recent log line for this entry.
 	LastSeen time.Time
 	// AppearCount is the number of times this entry appeared across all scanned files.
@@ -39,8 +44,8 @@ type ResolverCacheEntry struct {
 
 // resolverCacheEntryKey returns the deduplication key for a ResolverCacheEntry.
 // It matches the connection key format used by makeConnectionKey so look-ups are O(1).
-func resolverCacheEntryKey(ip string, port int, domain string) string {
-	return ip + "|" + strconv.Itoa(port) + "|" + domain
+func resolverCacheEntryKey(ip string, port int, domain string, qType uint16) string {
+	return ip + "|" + strconv.Itoa(port) + "|" + domain + "|" + strconv.Itoa(int(normalizeTunnelRecordType(qType)))
 }
 
 // ScanResolverCacheLogs scans resolver_cache_*.log files in logsDir.
@@ -126,7 +131,7 @@ func parseResolverCacheFile(path string, cutoff time.Time, accum map[string]*Res
 		if !cutoff.IsZero() && entry.LastSeen.Before(cutoff) {
 			continue
 		}
-		key := resolverCacheEntryKey(entry.IP, entry.Port, entry.Domain)
+		key := resolverCacheEntryKey(entry.IP, entry.Port, entry.Domain, entry.TunnelRecordType)
 		if existing, found := accum[key]; found {
 			existing.AppearCount++
 			// Prefer the newest MTU values.
@@ -145,7 +150,7 @@ func parseResolverCacheFile(path string, cutoff time.Time, accum map[string]*Res
 
 // parseResolverCacheLine parses one line in the format:
 //
-//	<RFC3339> <ip:port> <domain> UP=<n> DOWN=<n>
+//	<RFC3339> <ip:port> <domain> [TYPE=<record>] UP=<n> DOWN=<n>
 func parseResolverCacheLine(line string) (ResolverCacheEntry, bool) {
 	fields := strings.Fields(line)
 	if len(fields) < 5 {
@@ -171,23 +176,41 @@ func parseResolverCacheLine(line string) (ResolverCacheEntry, bool) {
 		return ResolverCacheEntry{}, false
 	}
 
-	upMTU, err := parseCacheKVInt(fields[3], "UP")
+	qType := uint16(Enums.DNS_RECORD_TYPE_TXT)
+	qName := "TXT"
+	kvOffset := 3
+	if strings.HasPrefix(fields[kvOffset], "TYPE=") {
+		parsedType, err := DnsParser.NormalizeTunnelCarrierName(fields[kvOffset][len("TYPE="):])
+		if err != nil {
+			return ResolverCacheEntry{}, false
+		}
+		qType = parsedType
+		qName = DnsParser.TunnelCarrierName(qType, DnsParser.DefaultTunnelPrivateRecordType)
+		kvOffset++
+	}
+	if len(fields) < kvOffset+2 {
+		return ResolverCacheEntry{}, false
+	}
+
+	upMTU, err := parseCacheKVInt(fields[kvOffset], "UP")
 	if err != nil || upMTU <= 0 {
 		return ResolverCacheEntry{}, false
 	}
 
-	downMTU, err := parseCacheKVInt(fields[4], "DOWN")
+	downMTU, err := parseCacheKVInt(fields[kvOffset+1], "DOWN")
 	if err != nil || downMTU <= 0 {
 		return ResolverCacheEntry{}, false
 	}
 
 	return ResolverCacheEntry{
-		IP:          host,
-		Port:        port,
-		Domain:      domain,
-		UploadMTU:   upMTU,
-		DownloadMTU: downMTU,
-		LastSeen:    ts,
+		IP:               host,
+		Port:             port,
+		Domain:           domain,
+		TunnelRecordType: qType,
+		TunnelRecordName: qName,
+		UploadMTU:        upMTU,
+		DownloadMTU:      downMTU,
+		LastSeen:         ts,
 	}, true
 }
 

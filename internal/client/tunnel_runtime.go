@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -293,7 +293,11 @@ func (c *Client) exchangeDNSOverConnection(conn Connection, query []byte, timeou
 
 	c.putUDPConn(conn.ResolverLabel, udpConn)
 
-	packet, err := dnsparser.ExtractVPNResponse(response, c.responseMode == mtuProbeBase64Reply)
+	packet, err := dnsparser.ExtractVPNCarrierResponse(response, dnsparser.ExtractVPNResponseOptions{
+		CarrierType: conn.TunnelRecordType,
+		PrivateType: uint16(c.cfg.TunnelPrivateRecordType),
+		BaseEncoded: c.responseMode == mtuProbeBase64Reply,
+	})
 	if err != nil {
 		return VpnProto.Packet{}, err
 	}

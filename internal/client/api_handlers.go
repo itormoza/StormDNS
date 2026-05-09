@@ -25,13 +25,13 @@ import (
 // ---------------------------------------------------------------------------
 
 type apiStatusResponse struct {
-	Session  apiSessionInfo  `json:"session"`
-	Version  string          `json:"version"`
-	Protocol string          `json:"protocol"`
-	Encryption apiEncryptionInfo `json:"encryption"`
-	Compression apiCompressionInfo `json:"compression"`
-	BaseEncoding bool        `json:"base_encoding"`
-	MTU      apiMTUInfo      `json:"mtu"`
+	Session      apiSessionInfo     `json:"session"`
+	Version      string             `json:"version"`
+	Protocol     string             `json:"protocol"`
+	Encryption   apiEncryptionInfo  `json:"encryption"`
+	Compression  apiCompressionInfo `json:"compression"`
+	BaseEncoding bool               `json:"base_encoding"`
+	MTU          apiMTUInfo         `json:"mtu"`
 }
 
 type apiSessionInfo struct {
@@ -100,14 +100,14 @@ func (c *Client) handleStatus(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiTrafficResponse struct {
-	TXBytes           uint64  `json:"tx_bytes"`
-	RXBytes           uint64  `json:"rx_bytes"`
-	TXSpeedBytesPerSec float64  `json:"tx_speed_bytes_per_sec"`
-	RXSpeedBytesPerSec float64  `json:"rx_speed_bytes_per_sec"`
-	TXTotal           string  `json:"tx_total"`
-	RXTotal           string  `json:"rx_total"`
-	TXSpeed           string  `json:"tx_speed"`
-	RXSpeed           string  `json:"rx_speed"`
+	TXBytes            uint64  `json:"tx_bytes"`
+	RXBytes            uint64  `json:"rx_bytes"`
+	TXSpeedBytesPerSec float64 `json:"tx_speed_bytes_per_sec"`
+	RXSpeedBytesPerSec float64 `json:"rx_speed_bytes_per_sec"`
+	TXTotal            string  `json:"tx_total"`
+	RXTotal            string  `json:"rx_total"`
+	TXSpeed            string  `json:"tx_speed"`
+	RXSpeed            string  `json:"rx_speed"`
 }
 
 func (c *Client) handleTraffic(w http.ResponseWriter, r *http.Request) {
@@ -134,14 +134,14 @@ func (c *Client) handleTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := apiTrafficResponse{
-		TXBytes:           currentTX,
-		RXBytes:           currentRX,
+		TXBytes:            currentTX,
+		RXBytes:            currentRX,
 		TXSpeedBytesPerSec: upSpeed,
 		RXSpeedBytesPerSec: downSpeed,
-		TXTotal:           formatBytes(currentTX),
-		RXTotal:           formatBytes(currentRX),
-		TXSpeed:           formatSpeed(upSpeed),
-		RXSpeed:           formatSpeed(downSpeed),
+		TXTotal:            formatBytes(currentTX),
+		RXTotal:            formatBytes(currentRX),
+		TXSpeed:            formatSpeed(upSpeed),
+		RXSpeed:            formatSpeed(downSpeed),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -152,30 +152,32 @@ func (c *Client) handleTraffic(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiResolverEntry struct {
-	Label           string  `json:"label"`
-	Domain          string  `json:"domain"`
-	IP              string  `json:"ip"`
-	Port            int     `json:"port"`
-	Valid           bool    `json:"valid"`
-	Disabled        bool    `json:"disabled"`
-	DisabledCause   string  `json:"disabled_cause,omitempty"`
-	DisabledAt      string  `json:"disabled_at,omitempty"`
-	NextRetryAt     string  `json:"next_retry_at,omitempty"`
-	RTTMicros       int64   `json:"rtt_micros,omitempty"`
-	PacketsSent     uint64  `json:"packets_sent"`
-	PacketsAcked    uint64  `json:"packets_acked"`
-	LossRate        float64 `json:"loss_rate"`
-	UploadMTU       int     `json:"upload_mtu_bytes"`
-	DownloadMTU     int     `json:"download_mtu_bytes"`
-	LastSuccessAt   string  `json:"last_success_at,omitempty"`
-	TimeoutCount    int     `json:"timeout_count"`
+	Label            string  `json:"label"`
+	Domain           string  `json:"domain"`
+	IP               string  `json:"ip"`
+	Port             int     `json:"port"`
+	TunnelRecordType uint16  `json:"tunnel_record_type"`
+	TunnelRecordName string  `json:"tunnel_record_name"`
+	Valid            bool    `json:"valid"`
+	Disabled         bool    `json:"disabled"`
+	DisabledCause    string  `json:"disabled_cause,omitempty"`
+	DisabledAt       string  `json:"disabled_at,omitempty"`
+	NextRetryAt      string  `json:"next_retry_at,omitempty"`
+	RTTMicros        int64   `json:"rtt_micros,omitempty"`
+	PacketsSent      uint64  `json:"packets_sent"`
+	PacketsAcked     uint64  `json:"packets_acked"`
+	LossRate         float64 `json:"loss_rate"`
+	UploadMTU        int     `json:"upload_mtu_bytes"`
+	DownloadMTU      int     `json:"download_mtu_bytes"`
+	LastSuccessAt    string  `json:"last_success_at,omitempty"`
+	TimeoutCount     int     `json:"timeout_count"`
 	TimeoutOnlySince string  `json:"timeout_only_since,omitempty"`
 }
 
 type apiResolversResponse struct {
-	Total    int                `json:"total"`
-	Valid    int                `json:"valid"`
-	Disabled int                `json:"disabled"`
+	Total     int                `json:"total"`
+	Valid     int                `json:"valid"`
+	Disabled  int                `json:"disabled"`
 	Resolvers []apiResolverEntry `json:"resolvers"`
 }
 
@@ -192,14 +194,21 @@ func (c *Client) handleResolvers(w http.ResponseWriter, r *http.Request) {
 
 	for _, conn := range c.connections {
 		key := conn.Key
+		recordType := normalizeTunnelRecordType(conn.TunnelRecordType)
+		recordName := conn.TunnelRecordName
+		if recordName == "" {
+			recordName = c.tunnelRecordName(recordType)
+		}
 		entry := apiResolverEntry{
-			Label:       conn.ResolverLabel,
-			Domain:      conn.Domain,
-			IP:          conn.Resolver,
-			Port:        conn.ResolverPort,
-			Valid:       conn.IsValid,
-			UploadMTU:   conn.UploadMTUBytes,
-			DownloadMTU: conn.DownloadMTUBytes,
+			Label:            conn.ResolverLabel,
+			Domain:           conn.Domain,
+			IP:               conn.Resolver,
+			Port:             conn.ResolverPort,
+			TunnelRecordType: recordType,
+			TunnelRecordName: recordName,
+			Valid:            conn.IsValid,
+			UploadMTU:        conn.UploadMTUBytes,
+			DownloadMTU:      conn.DownloadMTUBytes,
 		}
 
 		if conn.IsValid {
@@ -261,12 +270,12 @@ func (c *Client) handleResolvers(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiStreamEntry struct {
-	ID                   uint16 `json:"id"`
-	Status               string `json:"status"`
-	CreatedAt            string `json:"created_at,omitempty"`
-	LastActivity         string `json:"last_activity,omitempty"`
-	PreferredResolver    string `json:"preferred_resolver,omitempty"`
-	ResendStreak         int    `json:"resend_streak"`
+	ID                uint16 `json:"id"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	LastActivity      string `json:"last_activity,omitempty"`
+	PreferredResolver string `json:"preferred_resolver,omitempty"`
+	ResendStreak      int    `json:"resend_streak"`
 }
 
 type apiStreamsResponse struct {
@@ -317,9 +326,9 @@ func (c *Client) handleStreams(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiBalancerResponse struct {
-	Strategy        string `json:"strategy"`
-	ValidConnections int   `json:"valid_connections"`
-	BestConnection  string `json:"best_connection,omitempty"`
+	Strategy         string `json:"strategy"`
+	ValidConnections int    `json:"valid_connections"`
+	BestConnection   string `json:"best_connection,omitempty"`
 }
 
 func (c *Client) handleBalancer(w http.ResponseWriter, r *http.Request) {
@@ -334,7 +343,7 @@ func (c *Client) handleBalancer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := apiBalancerResponse{
-		Strategy:        balancerStrategyName(c.cfg.ResolverBalancingStrategy),
+		Strategy:         balancerStrategyName(c.cfg.ResolverBalancingStrategy),
 		ValidConnections: c.balancer.ValidCount(),
 	}
 
@@ -350,15 +359,15 @@ func (c *Client) handleBalancer(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiMTUDetailResponse struct {
-	UploadBytes   int `json:"upload_bytes"`
-	DownloadBytes int `json:"download_bytes"`
-	UploadChars   int `json:"upload_chars"`
+	UploadBytes     int `json:"upload_bytes"`
+	DownloadBytes   int `json:"download_bytes"`
+	UploadChars     int `json:"upload_chars"`
 	MaxPackedBlocks int `json:"max_packed_blocks"`
-	MinUpload     int `json:"min_upload"`
-	MaxUpload     int `json:"max_upload"`
-	MinDownload   int `json:"min_download"`
-	MaxDownload   int `json:"max_download"`
-	CryptoOverhead int `json:"crypto_overhead"`
+	MinUpload       int `json:"min_upload"`
+	MaxUpload       int `json:"max_upload"`
+	MinDownload     int `json:"min_download"`
+	MaxDownload     int `json:"max_download"`
+	CryptoOverhead  int `json:"crypto_overhead"`
 }
 
 func (c *Client) handleMTU(w http.ResponseWriter, r *http.Request) {
@@ -368,15 +377,15 @@ func (c *Client) handleMTU(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := apiMTUDetailResponse{
-		UploadBytes:    c.syncedUploadMTU,
-		DownloadBytes:  c.syncedDownloadMTU,
-		UploadChars:    c.syncedUploadChars,
+		UploadBytes:     c.syncedUploadMTU,
+		DownloadBytes:   c.syncedDownloadMTU,
+		UploadChars:     c.syncedUploadChars,
 		MaxPackedBlocks: c.maxPackedBlocks,
-		MinUpload:      c.cfg.MinUploadMTU,
-		MaxUpload:      c.cfg.MaxUploadMTU,
-		MinDownload:    c.cfg.MinDownloadMTU,
-		MaxDownload:    c.cfg.MaxDownloadMTU,
-		CryptoOverhead: c.mtuCryptoOverhead,
+		MinUpload:       c.cfg.MinUploadMTU,
+		MaxUpload:       c.cfg.MaxUploadMTU,
+		MinDownload:     c.cfg.MinDownloadMTU,
+		MaxDownload:     c.cfg.MaxDownloadMTU,
+		CryptoOverhead:  c.mtuCryptoOverhead,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -387,11 +396,11 @@ func (c *Client) handleMTU(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type apiPingResponse struct {
-	LastPingSentAt          string `json:"last_ping_sent_at,omitempty"`
-	LastPongReceivedAt      string `json:"last_pong_received_at,omitempty"`
-	LastNonPingSentAt       string `json:"last_non_ping_sent_at,omitempty"`
-	LastNonPongReceivedAt   string `json:"last_non_pong_received_at,omitempty"`
-	PingIntervalMode        string `json:"ping_interval_mode"`
+	LastPingSentAt        string `json:"last_ping_sent_at,omitempty"`
+	LastPongReceivedAt    string `json:"last_pong_received_at,omitempty"`
+	LastNonPingSentAt     string `json:"last_non_ping_sent_at,omitempty"`
+	LastNonPongReceivedAt string `json:"last_non_pong_received_at,omitempty"`
+	PingIntervalMode      string `json:"ping_interval_mode"`
 }
 
 func (c *Client) handlePing(w http.ResponseWriter, r *http.Request) {

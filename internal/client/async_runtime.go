@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -19,6 +19,7 @@ import (
 	"stormdns-go/internal/arq"
 	"stormdns-go/internal/client/handlers"
 	DnsParser "stormdns-go/internal/dnsparser"
+	Enums "stormdns-go/internal/enums"
 	fragmentStore "stormdns-go/internal/fragmentstore"
 )
 
@@ -512,6 +513,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 
 			var (
 				firstDomain    string
+				firstQType     uint16
 				firstDNSPacket []byte
 			)
 			if packetByDomain != nil {
@@ -527,6 +529,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				if domain == "" {
 					domain = defaultDomain
 				}
+				qType := normalizeTunnelRecordType(resolverConn.TunnelRecordType)
 
 				addr, err := c.getResolverUDPAddr(resolverConn)
 				if err != nil {
@@ -548,26 +551,28 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				var dnsPacket []byte
 				switch {
 				case firstDNSPacket == nil:
-					dnsPacket, err = buildTunnelTXTQuestionBytesPrepared(prepared, encoded)
+					dnsPacket, err = buildTunnelQuestionBytesPrepared(prepared, encoded, qType)
 					if err != nil {
 						continue
 					}
 					firstDomain = domain
+					firstQType = qType
 					firstDNSPacket = dnsPacket
-				case domain == firstDomain:
+				case domain == firstDomain && qType == firstQType:
 					dnsPacket = firstDNSPacket
 				default:
 					if packetByDomain == nil {
 						packetByDomain = make(map[string][]byte, len(task.conns)-1)
 					}
 					var cached bool
-					dnsPacket, cached = packetByDomain[domain]
+					cacheKey := domain + "|" + fmt.Sprint(qType)
+					dnsPacket, cached = packetByDomain[cacheKey]
 					if !cached {
-						dnsPacket, err = buildTunnelTXTQuestionBytesPrepared(prepared, encoded)
+						dnsPacket, err = buildTunnelQuestionBytesPrepared(prepared, encoded, qType)
 						if err != nil {
 							continue
 						}
-						packetByDomain[domain] = dnsPacket
+						packetByDomain[cacheKey] = dnsPacket
 					}
 				}
 
@@ -722,7 +727,12 @@ func (c *Client) handleInboundPacket(data []byte, addr *net.UDPAddr, localAddr s
 	// c.log.Debugf("Inbound packet from %v (%d bytes)", addr, len(data))
 
 	// 1. Extract VPN Packet from DNS Response
-	vpnPacket, err := DnsParser.ExtractVPNResponse(data, c.responseMode == mtuProbeBase64Reply)
+	carrierType := c.expectedTunnelRecordTypeForResponse(data, addr, localAddr)
+	vpnPacket, err := DnsParser.ExtractVPNCarrierResponse(data, DnsParser.ExtractVPNResponseOptions{
+		CarrierType: carrierType,
+		PrivateType: uint16(c.cfg.TunnelPrivateRecordType),
+		BaseEncoded: c.responseMode == mtuProbeBase64Reply,
+	})
 	if err != nil {
 		if errors.Is(err, DnsParser.ErrTXTAnswerMissing) {
 			receivedAt := time.Now()
@@ -762,4 +772,16 @@ func (c *Client) handleInboundPacket(data []byte, addr *net.UDPAddr, localAddr s
 		c.log.Warnf("\U0001F6A8 <red>Handler execution failed: %v</red>", err)
 	}
 
+}
+
+func (c *Client) expectedTunnelRecordTypeForResponse(data []byte, addr *net.UDPAddr, localAddr string) uint16 {
+	if sample, ok := c.lookupResolverSample(data, addr, localAddr); ok && sample.serverKey != "" {
+		if conn, found := c.GetConnectionByKey(sample.serverKey); found && conn.TunnelRecordType != 0 {
+			return conn.TunnelRecordType
+		}
+	}
+	if c != nil && c.cfg.TunnelRecordType != 0 {
+		return c.cfg.TunnelRecordType
+	}
+	return Enums.DNS_RECORD_TYPE_TXT
 }

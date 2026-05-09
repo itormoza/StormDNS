@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"stormdns-go/internal/arq"
+	DnsParser "stormdns-go/internal/dnsparser"
 	Enums "stormdns-go/internal/enums"
 	"stormdns-go/internal/logger"
 	"stormdns-go/internal/version"
@@ -60,7 +61,15 @@ func formatResolverEndpoint(resolver string, port int) string {
 	return fmt.Sprintf("%s:%d", resolver, port)
 }
 
-func makeConnectionKey(resolver string, port int, domain string) string {
+func makeConnectionKey(resolver string, port int, domain string, qTypes ...uint16) string {
+	qType := uint16(Enums.DNS_RECORD_TYPE_TXT)
+	if len(qTypes) > 0 && qTypes[0] != 0 {
+		qType = qTypes[0]
+	}
+	return resolver + "|" + strconv.Itoa(port) + "|" + domain + "|" + strconv.Itoa(int(qType))
+}
+
+func makeConnectionFamilyKey(resolver string, port int, domain string) string {
 	return resolver + "|" + strconv.Itoa(port) + "|" + domain
 }
 
@@ -564,13 +573,32 @@ func (c *Client) Connections() []Connection {
 	return c.connections
 }
 
+func (c *Client) tunnelRecordTypesForConnectionMap() []uint16 {
+	if c == nil {
+		return []uint16{Enums.DNS_RECORD_TYPE_TXT}
+	}
+	if c.cfg.TunnelDNSRecordAuto && len(c.cfg.TunnelAutoRecordTypes) > 0 {
+		return append([]uint16(nil), c.cfg.TunnelAutoRecordTypes...)
+	}
+	if c.cfg.TunnelRecordType != 0 {
+		return []uint16{c.cfg.TunnelRecordType}
+	}
+	return []uint16{Enums.DNS_RECORD_TYPE_TXT}
+}
+
+func (c *Client) tunnelRecordName(qType uint16) string {
+	privateType := uint16(c.cfg.TunnelPrivateRecordType)
+	return DnsParser.TunnelCarrierName(qType, privateType)
+}
+
 // BuildConnectionMap iterates through all domains and resolvers in the configuration
 // and builds a comprehensive list of unique Connection objects.
 func (c *Client) BuildConnectionMap() error {
 	domains := c.cfg.Domains
 	resolvers := c.cfg.Resolvers
+	carriers := c.tunnelRecordTypesForConnectionMap()
 
-	total := len(domains) * len(resolvers)
+	total := len(domains) * len(resolvers) * len(carriers)
 	if total <= 0 {
 		return fmt.Errorf("Domains or Resolvers are missing in config.")
 	}
@@ -580,22 +608,27 @@ func (c *Client) BuildConnectionMap() error {
 
 	for _, domain := range domains {
 		for _, resolver := range resolvers {
-			label := formatResolverEndpoint(resolver.IP, resolver.Port)
-			key := makeConnectionKey(resolver.IP, resolver.Port, domain)
-			if _, exists := indexByKey[key]; exists {
-				continue
-			}
+			for _, qType := range carriers {
+				label := formatResolverEndpoint(resolver.IP, resolver.Port)
+				key := makeConnectionKey(resolver.IP, resolver.Port, domain, qType)
+				if _, exists := indexByKey[key]; exists {
+					continue
+				}
 
-			indexByKey[key] = len(connections)
-			connections = append(connections, Connection{
-				Domain:        domain,
-				Resolver:      resolver.IP,
-				ResolverPort:  resolver.Port,
-				ResolverLabel: label,
-				Key:           key,
-				IsValid:       true,
-			})
+				indexByKey[key] = len(connections)
+				connections = append(connections, Connection{
+					Domain:           domain,
+					Resolver:         resolver.IP,
+					ResolverPort:     resolver.Port,
+					ResolverLabel:    label,
+					TunnelRecordType: qType,
+					TunnelRecordName: c.tunnelRecordName(qType),
+					Key:              key,
+					IsValid:          true,
+				})
+			}
 			if ip := net.ParseIP(resolver.IP); ip != nil {
+				label := formatResolverEndpoint(resolver.IP, resolver.Port)
 				c.resolverAddrCache[label] = &net.UDPAddr{IP: ip, Port: resolver.Port}
 			}
 		}

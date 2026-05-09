@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -21,7 +21,7 @@ import (
 	VpnProto "stormdns-go/internal/vpnproto"
 )
 
-func (s *Server) validatePostSessionPacket(questionPacket []byte, requestName string, vpnPacket VpnProto.Packet) postSessionValidation {
+func (s *Server) validatePostSessionPacket(questionPacket []byte, requestName string, carrierType uint16, vpnPacket VpnProto.Packet) postSessionValidation {
 	now := time.Now()
 	validation := s.sessions.ValidateAndTouch(vpnPacket.SessionID, vpnPacket.SessionCookie, now)
 	if validation.Valid {
@@ -35,14 +35,14 @@ func (s *Server) validatePostSessionPacket(questionPacket []byte, requestName st
 		mode := s.nextUnknownInvalidDropMode()
 		s.logInvalidSessionDrop("unknown session", vpnPacket.SessionID, vpnPacket.SessionCookie, 0, mode)
 		return postSessionValidation{
-			response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, vpnPacket.SessionID, mode),
+			response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, carrierType, vpnPacket.SessionID, mode),
 		}
 	}
 
 	if validation.Lookup.State == sessionLookupClosed {
 		s.logInvalidSessionDrop("recently closed session", vpnPacket.SessionID, vpnPacket.SessionCookie, validation.Lookup.Cookie, validation.Lookup.ResponseMode)
 		return postSessionValidation{
-			response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, vpnPacket.SessionID, validation.Lookup.ResponseMode),
+			response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, carrierType, vpnPacket.SessionID, validation.Lookup.ResponseMode),
 		}
 	}
 
@@ -61,7 +61,7 @@ func (s *Server) validatePostSessionPacket(questionPacket []byte, requestName st
 	s.logInvalidSessionDrop("invalid cookie threshold", vpnPacket.SessionID, vpnPacket.SessionCookie, validation.Lookup.Cookie, validation.Lookup.ResponseMode)
 
 	return postSessionValidation{
-		response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, vpnPacket.SessionID, validation.Lookup.ResponseMode),
+		response: s.buildInvalidSessionErrorResponse(questionPacket, requestName, carrierType, vpnPacket.SessionID, validation.Lookup.ResponseMode),
 	}
 }
 
@@ -131,9 +131,17 @@ func invalidSessionDropLogConfig(reason string, sessionID uint8, receivedCookie 
 	}
 }
 
-func (s *Server) buildInvalidSessionErrorResponse(questionPacket []byte, requestName string, sessionID uint8, responseMode uint8) []byte {
+func (s *Server) buildCarrierVPNResponse(questionPacket []byte, requestName string, carrierType uint16, packet VpnProto.Packet, baseEncode bool) ([]byte, error) {
+	return DnsParser.BuildVPNCarrierResponsePacket(questionPacket, requestName, packet, DnsParser.BuildVPNResponseOptions{
+		CarrierType: carrierType,
+		PrivateType: uint16(s.cfg.TunnelPrivateRecordType),
+		BaseEncode:  baseEncode,
+	})
+}
+
+func (s *Server) buildInvalidSessionErrorResponse(questionPacket []byte, requestName string, carrierType uint16, sessionID uint8, responseMode uint8) []byte {
 	payload := s.nextInvalidDropPayload()
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, requestName, VpnProto.Packet{
+	response, err := s.buildCarrierVPNResponse(questionPacket, requestName, carrierType, VpnProto.Packet{
 		SessionID:  sessionID,
 		PacketType: Enums.PACKET_ERROR_DROP,
 		Payload:    payload[:],
@@ -144,13 +152,13 @@ func (s *Server) buildInvalidSessionErrorResponse(questionPacket []byte, request
 	return response
 }
 
-func (s *Server) buildSessionBusyResponse(questionPacket []byte, requestName string, responseMode uint8, verifyCode []byte) []byte {
+func (s *Server) buildSessionBusyResponse(questionPacket []byte, requestName string, carrierType uint16, responseMode uint8, verifyCode []byte) []byte {
 	if len(verifyCode) < mtuProbeCodeLength {
 		return nil
 	}
 	var payload [mtuProbeCodeLength]byte
 	copy(payload[:], verifyCode[:mtuProbeCodeLength])
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, requestName, VpnProto.Packet{
+	response, err := s.buildCarrierVPNResponse(questionPacket, requestName, carrierType, VpnProto.Packet{
 		SessionID:  0,
 		PacketType: Enums.PACKET_SESSION_BUSY,
 		Payload:    payload[:],
@@ -161,13 +169,13 @@ func (s *Server) buildSessionBusyResponse(questionPacket []byte, requestName str
 	return response
 }
 
-func (s *Server) buildSessionVPNResponse(questionPacket []byte, requestName string, record *sessionRuntimeView, packet VpnProto.Packet) []byte {
+func (s *Server) buildSessionVPNResponse(questionPacket []byte, requestName string, carrierType uint16, record *sessionRuntimeView, packet VpnProto.Packet) []byte {
 	if record == nil {
 		return nil
 	}
 	packet.SessionID = record.ID
 	packet.SessionCookie = record.Cookie
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, requestName, packet, record.ResponseBase64)
+	response, err := s.buildCarrierVPNResponse(questionPacket, requestName, carrierType, packet, record.ResponseBase64)
 	if err != nil {
 		return nil
 	}
@@ -276,7 +284,7 @@ func (s *Server) finalizeStreamArtifacts(sessionID uint8, streamID uint16) {
 	s.removeSOCKS5SynFragmentsForStream(sessionID, streamID)
 }
 
-func (s *Server) serveQueuedOrPong(questionPacket []byte, requestName string, record *sessionRuntimeView, now time.Time) []byte {
+func (s *Server) serveQueuedOrPong(questionPacket []byte, requestName string, carrierType uint16, record *sessionRuntimeView, now time.Time) []byte {
 	if record == nil {
 		return nil
 	}
@@ -284,11 +292,11 @@ func (s *Server) serveQueuedOrPong(questionPacket []byte, requestName string, re
 	sessionID := record.ID
 
 	if pkt, ok := s.dequeueSessionResponse(sessionID, now); ok {
-		return s.buildSessionVPNResponse(questionPacket, requestName, record, *pkt)
+		return s.buildSessionVPNResponse(questionPacket, requestName, carrierType, record, *pkt)
 	}
 
 	payload := s.nextPongPayload()
-	return s.buildSessionVPNResponse(questionPacket, requestName, record, VpnProto.Packet{
+	return s.buildSessionVPNResponse(questionPacket, requestName, carrierType, record, VpnProto.Packet{
 		PacketType: Enums.PACKET_PONG,
 		Payload:    payload[:],
 	})
@@ -706,7 +714,7 @@ func (s *Server) handleSessionInitRequest(questionPacket []byte, decision domain
 					decision.RequestName,
 				)
 			}
-			return s.buildSessionBusyResponse(questionPacket, decision.RequestName, vpnPacket.Payload[0], vpnPacket.Payload[6:10])
+			return s.buildSessionBusyResponse(questionPacket, decision.RequestName, decision.QuestionType, vpnPacket.Payload[0], vpnPacket.Payload[6:10])
 		}
 		return nil
 	}
@@ -734,7 +742,7 @@ func (s *Server) handleSessionInitRequest(questionPacket []byte, decision domain
 	responsePayload[2] = compression.PackPair(record.UploadCompression, record.DownloadCompression)
 	copy(responsePayload[3:], record.VerifyCode[:])
 
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, decision.RequestName, VpnProto.Packet{
+	response, err := s.buildCarrierVPNResponse(questionPacket, decision.RequestName, decision.QuestionType, VpnProto.Packet{
 		SessionID:  0,
 		PacketType: Enums.PACKET_SESSION_ACCEPT,
 		Payload:    responsePayload[:],
@@ -764,7 +772,7 @@ func (s *Server) handleMTUUpRequest(questionPacket []byte, _ DnsParser.LitePacke
 	}
 
 	responsePayload := buildMTUProbeMetaPayload(vpnPacket.Payload[1:mtuProbeUpMinSize], len(vpnPacket.Payload))
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, decision.RequestName, VpnProto.Packet{
+	response, err := s.buildCarrierVPNResponse(questionPacket, decision.RequestName, decision.QuestionType, VpnProto.Packet{
 		SessionID:  vpnPacket.SessionID,
 		PacketType: Enums.PACKET_MTU_UP_RES,
 		Payload:    responsePayload[:],
@@ -800,7 +808,7 @@ func (s *Server) handleMTUDownRequest(questionPacket []byte, _ DnsParser.LitePac
 		fillMTUProbeBytes(payload[mtuProbeMetaLength:])
 	}
 
-	response, err := DnsParser.BuildVPNResponsePacket(questionPacket, decision.RequestName, VpnProto.Packet{
+	response, err := s.buildCarrierVPNResponse(questionPacket, decision.RequestName, decision.QuestionType, VpnProto.Packet{
 		SessionID:      vpnPacket.SessionID,
 		PacketType:     Enums.PACKET_MTU_DOWN_RES,
 		StreamID:       vpnPacket.StreamID,

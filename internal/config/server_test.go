@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	Enums "stormdns-go/internal/enums"
 )
 
 func TestLoadServerConfigWithOverridesAppliesFlagPrecedence(t *testing.T) {
@@ -56,6 +58,59 @@ SUPPORTED_DOWNLOAD_COMPRESSION_TYPES = [0, 3]
 	}
 	if len(cfg.SupportedDownloadCompressionTypes) != 3 {
 		t.Fatalf("unexpected download compression override: %+v", cfg.SupportedDownloadCompressionTypes)
+	}
+}
+
+func TestLoadServerConfigParsesTunnelRecordTypes(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "server_config.toml")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+UDP_PORT = 53
+DOMAIN = ["config.example.com"]
+DATA_ENCRYPTION_METHOD = 1
+SUPPORTED_UPLOAD_COMPRESSION_TYPES = [0, 3]
+SUPPORTED_DOWNLOAD_COMPRESSION_TYPES = [0, 3]
+TUNNEL_DNS_RECORD_TYPES = ["TXT"]
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+
+	cfg, err := LoadServerConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadServerConfig returned error: %v", err)
+	}
+	if len(cfg.TunnelRecordTypes) != 1 || cfg.TunnelRecordTypes[0] != Enums.DNS_RECORD_TYPE_TXT {
+		t.Fatalf("unexpected tunnel record types: %+v", cfg.TunnelRecordTypes)
+	}
+	if _, ok := cfg.TunnelRecordTypeSet[Enums.DNS_RECORD_TYPE_TXT]; !ok {
+		t.Fatal("expected TXT in tunnel record type set")
+	}
+}
+
+func TestLoadServerConfigAutoAcceptsImplementedTunnelCarriers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "server_config.toml")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+UDP_PORT = 53
+DOMAIN = ["config.example.com"]
+DATA_ENCRYPTION_METHOD = 1
+SUPPORTED_UPLOAD_COMPRESSION_TYPES = [0, 3]
+SUPPORTED_DOWNLOAD_COMPRESSION_TYPES = [0, 3]
+TUNNEL_DNS_RECORD_TYPES = ["AUTO"]
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+
+	cfg, err := LoadServerConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadServerConfig returned error: %v", err)
+	}
+	if len(cfg.TunnelRecordTypes) != 1 || cfg.TunnelRecordTypes[0] != Enums.DNS_RECORD_TYPE_TXT {
+		t.Fatalf("unexpected AUTO tunnel record types: %+v", cfg.TunnelRecordTypes)
 	}
 }
 

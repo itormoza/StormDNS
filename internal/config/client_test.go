@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"stormdns-go/internal/compression"
+	Enums "stormdns-go/internal/enums"
+	Carrier "stormdns-go/internal/tunnelcarrier"
 )
 
 func TestLoadClientConfigNormalizesAndLoadsResolvers(t *testing.T) {
@@ -119,6 +121,104 @@ ENCRYPTION_KEY = "secret"
 
 	if _, err := LoadClientConfig(configPath); err == nil {
 		t.Fatal("LoadClientConfig should reject an invalid RESOLVER_BALANCING_STRATEGY")
+	}
+}
+
+func TestLoadClientConfigParsesTunnelRecordTypeTXT(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "client_config.toml")
+	resolversPath := filepath.Join(dir, "client_resolvers.txt")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+DOMAINS = ["v.domain.com"]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = "secret"
+TUNNEL_DNS_RECORD_TYPE = "TXT"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+	if err := os.WriteFile(resolversPath, []byte("8.8.8.8\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile resolvers failed: %v", err)
+	}
+
+	cfg, err := LoadClientConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadClientConfig returned error: %v", err)
+	}
+	if cfg.TunnelRecordType != Enums.DNS_RECORD_TYPE_TXT || cfg.TunnelRecordName != "TXT" {
+		t.Fatalf("unexpected tunnel record: type=%d name=%q", cfg.TunnelRecordType, cfg.TunnelRecordName)
+	}
+	if cfg.TunnelDNSRecordAuto {
+		t.Fatal("TXT fixed mode should not enable AUTO")
+	}
+}
+
+func TestLoadClientConfigAutoFiltersToImplementedCarriers(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "client_config.toml")
+	resolversPath := filepath.Join(dir, "client_resolvers.txt")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+DOMAINS = ["v.domain.com"]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = "secret"
+TUNNEL_DNS_RECORD_TYPE = "AUTO"
+TUNNEL_DNS_AUTO_RECORD_TYPES = ["AAAA", "TXT", "PRIVATE"]
+TUNNEL_PRIVATE_RECORD_TYPE = 65280
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+	if err := os.WriteFile(resolversPath, []byte("8.8.8.8\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile resolvers failed: %v", err)
+	}
+
+	cfg, err := LoadClientConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadClientConfig returned error: %v", err)
+	}
+	if !cfg.TunnelDNSRecordAuto {
+		t.Fatal("AUTO mode should be enabled")
+	}
+	if len(cfg.TunnelAutoRecordTypes) != 1 || cfg.TunnelAutoRecordTypes[0] != Enums.DNS_RECORD_TYPE_TXT {
+		t.Fatalf("unexpected AUTO carrier list: %+v", cfg.TunnelAutoRecordTypes)
+	}
+}
+
+func TestTunnelCarrierConfigMapsPrivateToDefaultType(t *testing.T) {
+	qType, err := Carrier.NormalizeTunnelCarrierNameWithPrivate("PRIVATE", uint16(defaultTunnelPrivateRecordType))
+	if err != nil {
+		t.Fatalf("normalizeTunnelCarrierNameWithPrivate returned error: %v", err)
+	}
+	if qType != uint16(defaultTunnelPrivateRecordType) {
+		t.Fatalf("unexpected PRIVATE qtype: got=%d want=%d", qType, defaultTunnelPrivateRecordType)
+	}
+}
+
+func TestLoadClientConfigRejectsInvalidPrivateTunnelRecordType(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "client_config.toml")
+	resolversPath := filepath.Join(dir, "client_resolvers.txt")
+
+	if err := os.WriteFile(configPath, []byte(`
+PROTOCOL_TYPE = "SOCKS5"
+DOMAINS = ["v.domain.com"]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = "secret"
+TUNNEL_PRIVATE_RECORD_TYPE = 10
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile config failed: %v", err)
+	}
+	if err := os.WriteFile(resolversPath, []byte("8.8.8.8\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile resolvers failed: %v", err)
+	}
+
+	if _, err := LoadClientConfig(configPath); err == nil {
+		t.Fatal("LoadClientConfig should reject invalid TUNNEL_PRIVATE_RECORD_TYPE")
 	}
 }
 

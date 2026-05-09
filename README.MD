@@ -932,7 +932,21 @@ go vet ./...
 
 ## 📄 License
 
-StormDNS is released under the MIT license. See [LICENSE](LICENSE).
+StormDNS is an independent fork / derivative of MasterDnsVPN.
+
+Original project:
+
+- MasterDnsVPN
+- Original author: Amin Mahmoudi
+- License: MIT License
+
+StormDNS modifications:
+
+- Maintained by: NullRoute1970
+- License: MIT License
+
+This project preserves the MIT License terms of the original project and adds
+independent modifications under the same license. See [LICENSE](LICENSE).
 
 ## 👤 Maintainer
 

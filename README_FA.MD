@@ -931,7 +931,21 @@ go vet ./...
 
 ## 📄 مجوز
 
-StormDNS تحت مجوز MIT منتشر شده است. فایل [LICENSE](LICENSE) را ببینید.
+StormDNS یک fork / derivative مستقل از MasterDnsVPN است.
+
+پروژه اصلی:
+
+- MasterDnsVPN
+- نویسنده اصلی: Amin Mahmoudi
+- مجوز: MIT License
+
+تغییرات StormDNS:
+
+- نگهدارنده: NullRoute1970
+- مجوز: MIT License
+
+این پروژه شرایط MIT License پروژه اصلی را حفظ می‌کند و تغییرات مستقل را تحت
+همان مجوز اضافه می‌کند. فایل [LICENSE](LICENSE) را ببینید.
 
 ## 👤 نگهدارنده
 

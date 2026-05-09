@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -64,7 +64,7 @@ func (s *Server) handleTunnelCandidate(packet []byte, parsed DnsParser.LitePacke
 	}
 
 	if !isPreSessionRequestType(vpnPacket.PacketType) {
-		validation := s.validatePostSessionPacket(packet, decision.RequestName, vpnPacket)
+		validation := s.validatePostSessionPacket(packet, decision.RequestName, decision.QuestionType, vpnPacket)
 		if !validation.ok {
 			return validation.response
 		}
@@ -73,7 +73,7 @@ func (s *Server) handleTunnelCandidate(packet []byte, parsed DnsParser.LitePacke
 			return s.buildNoDataResponseLiteLogged(packet, parsed, fmt.Sprintf("post-session-unhandled-%s", Enums.PacketTypeName(vpnPacket.PacketType)))
 		}
 
-		return s.serveQueuedOrPong(packet, decision.RequestName, validation.record, time.Now())
+		return s.serveQueuedOrPong(packet, decision.RequestName, decision.QuestionType, validation.record, time.Now())
 	}
 
 	switch vpnPacket.PacketType {

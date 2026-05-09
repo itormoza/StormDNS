@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -37,6 +37,7 @@ type Matcher struct {
 	allowedDomains []string
 	root           *domainNode
 	minLabelLength int
+	carriers       map[uint16]struct{}
 }
 
 type domainNode struct {
@@ -44,16 +45,27 @@ type domainNode struct {
 	domain   string
 }
 
-func New(domains []string, minLabelLength int) *Matcher {
+func New(domains []string, minLabelLength int, carriers ...map[uint16]struct{}) *Matcher {
 	normalized := normalizeDomains(domains)
 	if minLabelLength < 1 {
 		minLabelLength = 3
+	}
+
+	allowedCarriers := map[uint16]struct{}{
+		Enums.DNS_RECORD_TYPE_TXT: {},
+	}
+	if len(carriers) > 0 && len(carriers[0]) > 0 {
+		allowedCarriers = make(map[uint16]struct{}, len(carriers[0]))
+		for qType := range carriers[0] {
+			allowedCarriers[qType] = struct{}{}
+		}
 	}
 
 	return &Matcher{
 		allowedDomains: normalized,
 		root:           buildDomainTrie(normalized),
 		minLabelLength: minLabelLength,
+		carriers:       allowedCarriers,
 	}
 }
 
@@ -89,7 +101,7 @@ func (m *Matcher) Match(parsed DnsParser.LitePacket) Decision {
 		}
 	}
 
-	if q0.Type != Enums.DNS_RECORD_TYPE_TXT {
+	if _, ok := m.carriers[q0.Type]; !ok {
 		return Decision{
 			Action:       ActionNoData,
 			Reason:       "unsupported-qtype",

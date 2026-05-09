@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -47,6 +47,20 @@ func TestMatcherReturnsNoDataForUnsupportedType(t *testing.T) {
 	}
 	if decision.Reason != "unsupported-qtype" {
 		t.Fatalf("unexpected reason: got=%q", decision.Reason)
+	}
+}
+
+func TestMatcherAcceptsConfiguredCarrierTypes(t *testing.T) {
+	matcher := New([]string{"a.com"}, 3, map[uint16]struct{}{
+		Enums.DNS_RECORD_TYPE_A: {},
+	})
+
+	decision := matcher.Match(litePacketWithQuestion("vpn.a.com", Enums.DNS_RECORD_TYPE_A))
+	if decision.Action != ActionProcess {
+		t.Fatalf("unexpected action: got=%d want=%d", decision.Action, ActionProcess)
+	}
+	if decision.QuestionType != Enums.DNS_RECORD_TYPE_A {
+		t.Fatalf("unexpected question type: got=%d want=%d", decision.QuestionType, Enums.DNS_RECORD_TYPE_A)
 	}
 }
 

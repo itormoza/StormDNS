@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -363,6 +363,81 @@ func TestBuildTunnelTXTQuestionPacketPreparedMatchesDirectBuilder(t *testing.T) 
 	}
 	if !bytes.Equal(direct[2:], prepared[2:]) {
 		t.Fatal("prepared tunnel question packet differs from direct builder output")
+	}
+}
+
+func TestBuildTunnelQuestionPacketTXTMatchesWrapper(t *testing.T) {
+	encoded := []byte(stringsOf('c', 90))
+
+	generic, err := BuildTunnelQuestionPacket("v.example.com", encoded, Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTunnelQuestionPacket returned error: %v", err)
+	}
+
+	wrapper, err := BuildTunnelTXTQuestionPacket("v.example.com", encoded, Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTunnelTXTQuestionPacket returned error: %v", err)
+	}
+
+	if len(generic) != len(wrapper) {
+		t.Fatalf("packet length mismatch: generic=%d wrapper=%d", len(generic), len(wrapper))
+	}
+	if !bytes.Equal(generic[2:], wrapper[2:]) {
+		t.Fatal("generic tunnel question differs from TXT wrapper output")
+	}
+}
+
+func TestBuildAndExtractVPNCarrierResponseTXT(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	response, err := BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:  1,
+		PacketType: Enums.PACKET_PONG,
+		Payload:    []byte("ok"),
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("BuildVPNCarrierResponsePacket returned error: %v", err)
+	}
+
+	packet, err := ExtractVPNCarrierResponse(response, ExtractVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_TXT})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if packet.PacketType != Enums.PACKET_PONG || string(packet.Payload) != "ok" {
+		t.Fatalf("unexpected packet: type=%d payload=%q", packet.PacketType, packet.Payload)
+	}
+
+	parsed, err := ParsePacket(response)
+	if err != nil {
+		t.Fatalf("ParsePacket returned error: %v", err)
+	}
+	if len(parsed.Answers) != 1 {
+		t.Fatalf("unexpected answer count: got=%d want=1", len(parsed.Answers))
+	}
+	answer := parsed.Answers[0]
+	if answer.RDataOffset <= 0 || answer.RDataOffset+int(answer.RDLen) > len(response) {
+		t.Fatalf("invalid rdata offset: offset=%d rdlen=%d response=%d", answer.RDataOffset, answer.RDLen, len(response))
+	}
+	if !bytes.Equal(response[answer.RDataOffset:answer.RDataOffset+int(answer.RDLen)], answer.RData) {
+		t.Fatal("RDataOffset does not point at answer RDATA")
+	}
+}
+
+func TestBuildVPNCarrierResponseRejectsUnimplementedCarrier(t *testing.T) {
+	query, err := BuildTXTQuestionPacket("x.v.example.com", Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTXTQuestionPacket returned error: %v", err)
+	}
+
+	_, err = BuildVPNCarrierResponsePacket(query, "x.v.example.com", VpnProto.Packet{
+		SessionID:  1,
+		PacketType: Enums.PACKET_PONG,
+	}, BuildVPNResponseOptions{CarrierType: Enums.DNS_RECORD_TYPE_AAAA})
+	if !errors.Is(err, ErrUnsupportedCarrier) {
+		t.Fatalf("expected ErrUnsupportedCarrier, got %v", err)
 	}
 }
 

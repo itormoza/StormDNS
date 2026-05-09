@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -49,12 +49,13 @@ type Question struct {
 }
 
 type ResourceRecord struct {
-	Name  string
-	Type  uint16
-	Class uint16
-	TTL   uint32
-	RDLen uint16
-	RData []byte
+	Name        string
+	Type        uint16
+	Class       uint16
+	TTL         uint32
+	RDLen       uint16
+	RDataOffset int
+	RData       []byte
 }
 
 type Packet struct {
@@ -227,18 +228,20 @@ func parseResourceRecords(data []byte, offset int, count int) ([]ResourceRecord,
 		rdLen := binary.BigEndian.Uint16(data[offset+8 : offset+10])
 		offset += 10
 
+		rDataOffset := offset
 		end := offset + int(rdLen)
 		if end > len(data) {
 			return nil, offset, ErrInvalidAnswer
 		}
 
 		records[i] = ResourceRecord{
-			Name:  name,
-			Type:  rType,
-			Class: rClass,
-			TTL:   ttl,
-			RDLen: rdLen,
-			RData: data[offset:end],
+			Name:        name,
+			Type:        rType,
+			Class:       rClass,
+			TTL:         ttl,
+			RDLen:       rdLen,
+			RDataOffset: rDataOffset,
+			RData:       data[offset:end],
 		}
 		offset = end
 	}

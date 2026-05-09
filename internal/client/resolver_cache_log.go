@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -10,9 +10,9 @@
 // future runs can start quickly by skipping the full MTU scan.
 //
 // Line format:
-//   <RFC3339>  <ip:port>  <domain>  UP=<n>  DOWN=<n>
+//   <RFC3339>  <ip:port>  <domain>  TYPE=<record>  UP=<n>  DOWN=<n>
 // Example:
-//   2026-04-20T15:04:05Z  8.8.8.8:53  v.domain.com  UP=64  DOWN=120
+//   2026-04-20T15:04:05Z  8.8.8.8:53  v.domain.com  TYPE=TXT  UP=64  DOWN=120
 // ==============================================================================
 package client
 
@@ -21,6 +21,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	DnsParser "stormdns-go/internal/dnsparser"
 )
 
 // openResolverCacheLog creates (or truncates) the resolver cache log file for
@@ -65,7 +67,7 @@ func (c *Client) openResolverCacheLog(path string) {
 
 // appendResolverCacheEntry writes one line to the resolver cache log for a
 // connection that has been confirmed working (MTU values are positive).
-// Format: <RFC3339> <ip:port> <domain> UP=<n> DOWN=<n>
+// Format: <RFC3339> <ip:port> <domain> TYPE=<record> UP=<n> DOWN=<n>
 func (c *Client) appendResolverCacheEntry(conn *Connection) {
 	if c == nil || conn == nil || conn.UploadMTUBytes <= 0 || conn.DownloadMTUBytes <= 0 {
 		return
@@ -79,11 +81,14 @@ func (c *Client) appendResolverCacheEntry(conn *Connection) {
 	}
 
 	endpoint := formatResolverEndpoint(conn.Resolver, conn.ResolverPort)
+	qType := normalizeTunnelRecordType(conn.TunnelRecordType)
+	recordName := DnsParser.TunnelCarrierName(qType, uint16(c.cfg.TunnelPrivateRecordType))
 	line := fmt.Sprintf(
-		"%s %s %s UP=%d DOWN=%d\n",
+		"%s %s %s TYPE=%s UP=%d DOWN=%d\n",
 		time.Now().UTC().Format(time.RFC3339),
 		endpoint,
 		conn.Domain,
+		recordName,
 		conn.UploadMTUBytes,
 		conn.DownloadMTUBytes,
 	)

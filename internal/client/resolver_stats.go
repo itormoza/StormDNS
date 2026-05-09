@@ -96,6 +96,23 @@ func (c *Client) trackResolverSend(packet []byte, resolverAddr string, localAddr
 	c.noteResolverSend(serverKey)
 }
 
+func (c *Client) lookupResolverSample(packet []byte, addr *net.UDPAddr, localAddr string) (resolverSample, bool) {
+	if c == nil || len(packet) < 2 || addr == nil {
+		return resolverSample{}, false
+	}
+
+	key := resolverSampleKey{
+		resolverAddr: addr.String(),
+		localAddr:    localAddr,
+		dnsID:        binary.BigEndian.Uint16(packet[:2]),
+	}
+
+	c.resolverStatsMu.Lock()
+	sample, ok := c.resolverPending[key]
+	c.resolverStatsMu.Unlock()
+	return sample, ok
+}
+
 func (c *Client) trackResolverSuccess(packet []byte, addr *net.UDPAddr, localAddr string, receivedAt time.Time) {
 	if c == nil || len(packet) < 2 || addr == nil {
 		return
