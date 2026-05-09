@@ -538,8 +538,8 @@ IDهای رمزنگاری:
 | --- | --- | --- |
 | `UDP_HOST` | آدرس bind برای ورودی DNS tunnel. | اگر خالی باشد `0.0.0.0` می‌شود. |
 | `UDP_PORT` | port UDP برای ورودی DNS tunnel. | باید `1..65535` باشد؛ deployment عمومی معمولاً `53` است. |
-| `UDP_READERS` | تعداد goroutineهای خواندن UDP. | مقدار `<= 0` به `4` برمی‌گردد. |
-| `DNS_REQUEST_WORKERS` | تعداد workerهای پردازش DNS request parseشده. | مقدار `<= 0` به `8` برمی‌گردد. |
+| `UDP_READERS` | تعداد goroutineهای خواندن UDP. | مقدار `<= 0` از default خودکار با سقف `8` استفاده می‌کند. |
+| `DNS_REQUEST_WORKERS` | تعداد workerهای پردازش DNS request parseشده. | مقدار `<= 0` از default خودکار با سقف `32` استفاده می‌کند. |
 | `MAX_CONCURRENT_REQUESTS` | اندازه queue جلوی workerهای DNS request. | وقتی queue پر شود packetها drop می‌شوند و overload log با rate limit ثبت می‌شود. |
 | `SOCKET_BUFFER_SIZE` | اندازه buffer خواندن/نوشتن socket UDP بر حسب byte. | buffer بزرگ‌تر burstها را بهتر جذب می‌کند، البته محدود به تنظیمات OS است. |
 | `MAX_PACKET_SIZE` | حداکثر اندازه packet buffer در pool سرور. | مقدار `<= 0` به `65535` برمی‌گردد. |
@@ -564,9 +564,9 @@ IDهای رمزنگاری:
 | --- | --- | --- |
 | `INVALID_COOKIE_WINDOW_SECONDS` | sliding window برای tracking invalid cookie. | مقدار `<= 0` به `2` ثانیه برمی‌گردد. |
 | `INVALID_COOKIE_ERROR_THRESHOLD` | تعداد hit invalid cookie قابل تحمل داخل window. | مقدار `<= 0` به `10` برمی‌گردد؛ عبور از threshold رفتار error را شدیدتر می‌کند. |
-| `SESSION_TIMEOUT_SECONDS` | timeout عدم فعالیت session. | مقدار `<= 0` به `120` ثانیه برمی‌گردد. |
+| `SESSION_TIMEOUT_SECONDS` | timeout عدم فعالیت session. | مقدار `<= 0` به `300` ثانیه برمی‌گردد. |
 | `SESSION_CLEANUP_INTERVAL_SECONDS` | فاصله cleanup پس‌زمینه sessionها. | مقدار `<= 0` به `10` ثانیه برمی‌گردد. |
-| `CLOSED_SESSION_RETENTION_SECONDS` | مدت نگهداری metadata session بسته‌شده. | مقدار `<= 0` به `60` ثانیه برمی‌گردد. |
+| `CLOSED_SESSION_RETENTION_SECONDS` | مدت نگهداری metadata session بسته‌شده. | مقدار `<= 0` به `600` ثانیه برمی‌گردد. |
 | `SESSION_INIT_REUSE_TTL_SECONDS` | مدت قابل reuse بودن signature پذیرفته‌شده session-init. | به `1..86400` ثانیه clamp می‌شود. |
 | `RECENTLY_CLOSED_STREAM_TTL_SECONDS` | مدت باقی ماندن stream ID بسته‌شده در جدول recently-closed. | به `1..86400` ثانیه clamp می‌شود. |
 | `RECENTLY_CLOSED_STREAM_CAP` | حداکثر recordهای recently-closed stream برای هر session. | به `1..1000000` clamp می‌شود. |
@@ -577,7 +577,7 @@ IDهای رمزنگاری:
 | تنظیم | توضیح | نکته |
 | --- | --- | --- |
 | `DNS_UPSTREAM_SERVERS` | resolverهای upstream برای DNS requestهای تونل‌شده. | بهتر است host و port داشته باشند، مثل `1.1.1.1:53`. لیست خالی به `1.1.1.1:53` برمی‌گردد. |
-| `DNS_UPSTREAM_TIMEOUT` | timeout هر تلاش exchange با upstream DNS. | مقدار `<= 0` به `2` ثانیه برمی‌گردد. |
+| `DNS_UPSTREAM_TIMEOUT` | timeout هر تلاش exchange با upstream DNS. | مقدار `<= 0` به `4` ثانیه برمی‌گردد. |
 | `DNS_INFLIGHT_WAIT_TIMEOUT_SECONDS` | timeout انتظار برای requestهای DNS duplicate که lookup inflight مشترک دارند. | به `0.1..120` ثانیه clamp می‌شود. |
 | `DNS_FRAGMENT_ASSEMBLY_TIMEOUT` | timeout assemble کردن fragmentهای DNS query تونل‌شده ورودی. | مقدار `<= 0` به `300` ثانیه برمی‌گردد. |
 | `DNS_CACHE_MAX_RECORDS` | حداکثر record در cache DNS تونل سمت سرور. | مقدار کمتر از `1` به default امن برمی‌گردد. |
@@ -587,7 +587,7 @@ IDهای رمزنگاری:
 
 | تنظیم | توضیح | نکته |
 | --- | --- | --- |
-| `SOCKS_CONNECT_TIMEOUT` | timeout اتصال TCP outbound. | روی اتصال مستقیم و setup اتصال SOCKS upstream اثر دارد. |
+| `SOCKS_CONNECT_TIMEOUT` | timeout اتصال TCP outbound. | روی اتصال مستقیم و setup اتصال SOCKS upstream اثر دارد؛ مقدار `<= 0` به `8` ثانیه برمی‌گردد و تلاش‌های deferred connect سقف `15` ثانیه دارند. |
 | `USE_EXTERNAL_SOCKS5` | در حالت SOCKS5 خروجی سرور را از یک SOCKS5 proxy دیگر عبور می‌دهد. | به `FORWARD_IP` و `FORWARD_PORT` مثبت نیاز دارد؛ رفتار forwarding در حالت `TCP` را عوض نمی‌کند. |
 | `SOCKS5_AUTH` | auth username/password برای SOCKS5 upstream را فعال می‌کند. | فقط با `PROTOCOL_TYPE = "SOCKS5"` و `USE_EXTERNAL_SOCKS5 = true` استفاده می‌شود. |
 | `SOCKS5_USER` | username برای SOCKS5 upstream. | با `SOCKS5_AUTH = true` لازم است؛ حداکثر 255 byte. |

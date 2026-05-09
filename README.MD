@@ -540,8 +540,8 @@ listed below.
 | --- | --- | --- |
 | `UDP_HOST` | UDP bind address for DNS tunnel ingress. | Defaults to `0.0.0.0` when empty. |
 | `UDP_PORT` | UDP bind port for DNS tunnel ingress. | Must be `1..65535`; public deployments normally use `53`. |
-| `UDP_READERS` | Number of UDP reader goroutines. | Values `<= 0` fall back to `4`. |
-| `DNS_REQUEST_WORKERS` | Number of workers processing parsed DNS requests. | Values `<= 0` fall back to `8`. |
+| `UDP_READERS` | Number of UDP reader goroutines. | Values `<= 0` use an auto default capped at `8`. |
+| `DNS_REQUEST_WORKERS` | Number of workers processing parsed DNS requests. | Values `<= 0` use an auto default capped at `32`. |
 | `MAX_CONCURRENT_REQUESTS` | Queue size in front of DNS request workers. | Full queues drop packets and emit rate-limited overload logs. |
 | `SOCKET_BUFFER_SIZE` | UDP socket read/write buffer size in bytes. | Larger buffers absorb bursts, subject to OS limits. |
 | `MAX_PACKET_SIZE` | Maximum packet buffer size allocated by the server pool. | Values `<= 0` fall back to `65535`. |
@@ -566,9 +566,9 @@ listed below.
 | --- | --- | --- |
 | `INVALID_COOKIE_WINDOW_SECONDS` | Sliding window for invalid-cookie tracking. | Values `<= 0` fall back to `2` seconds. |
 | `INVALID_COOKIE_ERROR_THRESHOLD` | Invalid-cookie hits tolerated inside the window. | Values `<= 0` fall back to `10`; crossing the threshold escalates error behavior. |
-| `SESSION_TIMEOUT_SECONDS` | Session inactivity timeout. | Values `<= 0` fall back to `120` seconds. |
+| `SESSION_TIMEOUT_SECONDS` | Session inactivity timeout. | Values `<= 0` fall back to `300` seconds. |
 | `SESSION_CLEANUP_INTERVAL_SECONDS` | Background session cleanup interval. | Values `<= 0` fall back to `10` seconds. |
-| `CLOSED_SESSION_RETENTION_SECONDS` | Retention time for closed-session metadata. | Values `<= 0` fall back to `60` seconds. |
+| `CLOSED_SESSION_RETENTION_SECONDS` | Retention time for closed-session metadata. | Values `<= 0` fall back to `600` seconds. |
 | `SESSION_INIT_REUSE_TTL_SECONDS` | Time an accepted session-init signature can be reused. | Clamped to `1..86400` seconds. |
 | `RECENTLY_CLOSED_STREAM_TTL_SECONDS` | Time closed stream IDs remain in the recently-closed table. | Clamped to `1..86400` seconds. |
 | `RECENTLY_CLOSED_STREAM_CAP` | Maximum recently-closed stream records per session. | Clamped to `1..1000000`. |
@@ -579,7 +579,7 @@ listed below.
 | Setting | Description | Notes |
 | --- | --- | --- |
 | `DNS_UPSTREAM_SERVERS` | Upstream DNS resolvers used for tunneled DNS requests. | Values should include host and port, such as `1.1.1.1:53`. Empty lists fall back to `1.1.1.1:53`. |
-| `DNS_UPSTREAM_TIMEOUT` | Timeout for each upstream DNS exchange attempt. | Values `<= 0` fall back to `2` seconds. |
+| `DNS_UPSTREAM_TIMEOUT` | Timeout for each upstream DNS exchange attempt. | Values `<= 0` fall back to `4` seconds. |
 | `DNS_INFLIGHT_WAIT_TIMEOUT_SECONDS` | Wait timeout for duplicate DNS requests sharing an inflight lookup. | Clamped to `0.1..120` seconds. |
 | `DNS_FRAGMENT_ASSEMBLY_TIMEOUT` | Timeout for assembling inbound tunneled DNS query fragments. | Values `<= 0` fall back to `300` seconds. |
 | `DNS_CACHE_MAX_RECORDS` | Maximum records in the server-side tunneled DNS cache. | Values below `1` fall back to a safe default. |
@@ -589,7 +589,7 @@ listed below.
 
 | Setting | Description | Notes |
 | --- | --- | --- |
-| `SOCKS_CONNECT_TIMEOUT` | Timeout for outbound TCP connect attempts. | Applies to direct connections and upstream SOCKS connection setup. |
+| `SOCKS_CONNECT_TIMEOUT` | Timeout for outbound TCP connect attempts. | Applies to direct connections and upstream SOCKS setup; values `<= 0` fall back to `8` seconds, and deferred connect attempts are capped at `15` seconds. |
 | `USE_EXTERNAL_SOCKS5` | Routes SOCKS5-mode egress through another SOCKS5 proxy. | Requires `FORWARD_IP` and a positive `FORWARD_PORT`; does not change `TCP` mode forwarding. |
 | `SOCKS5_AUTH` | Enables username/password auth for the upstream SOCKS5 proxy. | Used only with `PROTOCOL_TYPE = "SOCKS5"` and `USE_EXTERNAL_SOCKS5 = true`. |
 | `SOCKS5_USER` | Username for the upstream SOCKS5 proxy. | Required with `SOCKS5_AUTH = true`; maximum 255 bytes. |

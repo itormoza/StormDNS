@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -108,15 +109,23 @@ type ServerConfigFlagBinder struct {
 	flagToField map[string]string
 }
 
+func defaultServerUDPReaders() int {
+	return min(max(runtime.NumCPU(), 2), 8)
+}
+
+func defaultServerRequestWorkers() int {
+	return min(max(runtime.NumCPU()*2, 4), 32)
+}
+
 func defaultServerConfig() ServerConfig {
 	return ServerConfig{
 		ProtocolType:                      "SOCKS5",
 		UDPHost:                           "0.0.0.0",
 		UDPPort:                           53,
-		UDPReaders:                        4,
+		UDPReaders:                        defaultServerUDPReaders(),
 		SocketBufferSize:                  16777216,
 		MaxConcurrentRequests:             32768,
-		DNSRequestWorkers:                 8,
+		DNSRequestWorkers:                 defaultServerRequestWorkers(),
 		DeferredSessionWorkers:            16,
 		DeferredSessionQueueLimit:         8192,
 		SessionOrphanQueueInitialCap:      64,
@@ -129,19 +138,19 @@ func defaultServerConfig() ServerConfig {
 		DropLogIntervalSecs:               2.0,
 		InvalidCookieWindowSecs:           2.0,
 		InvalidCookieErrorThreshold:       10,
-		SessionTimeoutSecs:                120.0,
+		SessionTimeoutSecs:                300.0,
 		SessionCleanupIntervalSecs:        10.0,
-		ClosedSessionRetentionSecs:        60.0,
-		SessionInitReuseTTLSeconds:        60.0,
-		RecentlyClosedStreamTTLSeconds:    60.0,
-		RecentlyClosedStreamCap:           1000,
-		TerminalStreamRetentionSeconds:    15.0,
+		ClosedSessionRetentionSecs:        600.0,
+		SessionInitReuseTTLSeconds:        600.0,
+		RecentlyClosedStreamTTLSeconds:    600.0,
+		RecentlyClosedStreamCap:           2000,
+		TerminalStreamRetentionSeconds:    45.0,
 		MaxPacketsPerBatch:                8,
 		PacketBlockControlDuplication:     1,
 		DNSUpstreamServers:                []string{"1.1.1.1:53"},
-		DNSUpstreamTimeoutSecs:            2.0,
+		DNSUpstreamTimeoutSecs:            4.0,
 		DNSInflightWaitTimeoutSecs:        8.0,
-		SOCKSConnectTimeoutSecs:           2.0,
+		SOCKSConnectTimeoutSecs:           8.0,
 		DNSFragmentAssemblyTimeoutSecs:    300.0,
 		StreamSetupAckTTLSeconds:          400.0,
 		StreamResultPacketTTLSeconds:      300.0,
@@ -240,7 +249,7 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	}
 
 	if cfg.UDPReaders <= 0 {
-		cfg.UDPReaders = 4
+		cfg.UDPReaders = defaultServerUDPReaders()
 	}
 
 	if cfg.SocketBufferSize <= 0 {
@@ -252,7 +261,7 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	}
 
 	if cfg.DNSRequestWorkers <= 0 {
-		cfg.DNSRequestWorkers = 8
+		cfg.DNSRequestWorkers = defaultServerRequestWorkers()
 	}
 	if cfg.DeferredSessionWorkers < 0 {
 		cfg.DeferredSessionWorkers = 0
@@ -293,7 +302,7 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	}
 
 	if cfg.SessionTimeoutSecs <= 0 {
-		cfg.SessionTimeoutSecs = 120.0
+		cfg.SessionTimeoutSecs = 300.0
 	}
 
 	if cfg.SessionCleanupIntervalSecs <= 0 {
@@ -301,12 +310,12 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	}
 
 	if cfg.ClosedSessionRetentionSecs <= 0 {
-		cfg.ClosedSessionRetentionSecs = 60.0
+		cfg.ClosedSessionRetentionSecs = 600.0
 	}
-	cfg.SessionInitReuseTTLSeconds = clampFloat(defaultFloatAtMostZero(cfg.SessionInitReuseTTLSeconds, 60.0), 1.0, 86400.0)
-	cfg.RecentlyClosedStreamTTLSeconds = clampFloat(defaultFloatAtMostZero(cfg.RecentlyClosedStreamTTLSeconds, 60.0), 1.0, 86400.0)
-	cfg.RecentlyClosedStreamCap = clampInt(defaultIntBelow(cfg.RecentlyClosedStreamCap, 1, 1000), 1, 1000000)
-	cfg.TerminalStreamRetentionSeconds = clampFloat(defaultFloatAtMostZero(cfg.TerminalStreamRetentionSeconds, 15.0), 1.0, 86400.0)
+	cfg.SessionInitReuseTTLSeconds = clampFloat(defaultFloatAtMostZero(cfg.SessionInitReuseTTLSeconds, 600.0), 1.0, 86400.0)
+	cfg.RecentlyClosedStreamTTLSeconds = clampFloat(defaultFloatAtMostZero(cfg.RecentlyClosedStreamTTLSeconds, 600.0), 1.0, 86400.0)
+	cfg.RecentlyClosedStreamCap = clampInt(defaultIntBelow(cfg.RecentlyClosedStreamCap, 1, 2000), 1, 1000000)
+	cfg.TerminalStreamRetentionSeconds = clampFloat(defaultFloatAtMostZero(cfg.TerminalStreamRetentionSeconds, 45.0), 1.0, 86400.0)
 
 	if cfg.MaxPacketsPerBatch < 1 {
 		cfg.MaxPacketsPerBatch = 20
@@ -325,12 +334,12 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	}
 
 	if cfg.DNSUpstreamTimeoutSecs <= 0 {
-		cfg.DNSUpstreamTimeoutSecs = 2.0
+		cfg.DNSUpstreamTimeoutSecs = 4.0
 	}
 	cfg.DNSInflightWaitTimeoutSecs = clampFloat(defaultFloatAtMostZero(cfg.DNSInflightWaitTimeoutSecs, 8.0), 0.1, 120.0)
 
 	if cfg.SOCKSConnectTimeoutSecs <= 0 {
-		cfg.SOCKSConnectTimeoutSecs = 2.0
+		cfg.SOCKSConnectTimeoutSecs = 8.0
 	}
 
 	if cfg.DNSFragmentAssemblyTimeoutSecs <= 0 {

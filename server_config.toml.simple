@@ -51,12 +51,12 @@ UDP_HOST = "0.0.0.0"
 UDP_PORT = 53
 
 # Number of UDP reader goroutines.
-# If <= 0, code falls back to 4.
-UDP_READERS = 4
+# If <= 0, code falls back to an auto default capped at 8.
+UDP_READERS = 0
 
 # Number of DNS request workers that process incoming packets.
-# If <= 0, code falls back to 8.
-DNS_REQUEST_WORKERS = 8
+# If <= 0, code falls back to an auto default capped at 32.
+DNS_REQUEST_WORKERS = 0
 
 # Maximum queued requests waiting behind request workers.
 # If the queue is full, packets are dropped and rate-limited overload logs appear.
@@ -121,27 +121,27 @@ INVALID_COOKIE_WINDOW_SECONDS = 2.0
 INVALID_COOKIE_ERROR_THRESHOLD = 10
 
 # Session inactivity timeout.
-SESSION_TIMEOUT_SECONDS = 120.0
+SESSION_TIMEOUT_SECONDS = 300.0
 
 # How often the background cleanup loop runs.
 SESSION_CLEANUP_INTERVAL_SECONDS = 10.0
 
 # How long closed-session metadata is kept after cleanup.
-CLOSED_SESSION_RETENTION_SECONDS = 60.0
+CLOSED_SESSION_RETENTION_SECONDS = 600.0
 
 # How long an accepted SESSION_INIT signature can be reused before the server
 # stops treating it as reusable init state.
-SESSION_INIT_REUSE_TTL_SECONDS = 60.0
+SESSION_INIT_REUSE_TTL_SECONDS = 600.0
 
 # How long a closed stream remains in the "recently closed" table.
 # Used to reject late SYNs / duplicates without reviving dead streams.
-RECENTLY_CLOSED_STREAM_TTL_SECONDS = 60.0
+RECENTLY_CLOSED_STREAM_TTL_SECONDS = 600.0
 
 # Maximum number of recently-closed stream records kept per session.
-RECENTLY_CLOSED_STREAM_CAP = 1000
+RECENTLY_CLOSED_STREAM_CAP = 2000
 
 # How long terminal streams remain before terminal-stream sweep removes them.
-TERMINAL_STREAM_RETENTION_SECONDS = 15.0
+TERMINAL_STREAM_RETENTION_SECONDS = 45.0
 
 # ------------------------------------------------------------------------------
 # 5) DNS Tunnel Upstream
@@ -154,7 +154,7 @@ TERMINAL_STREAM_RETENTION_SECONDS = 15.0
 DNS_UPSTREAM_SERVERS = ["1.1.1.1:53", "1.0.0.1:53"]
 
 # Timeout for each upstream DNS exchange attempt.
-DNS_UPSTREAM_TIMEOUT = 2.0
+DNS_UPSTREAM_TIMEOUT = 4.0
 
 # Wait timeout for followers sharing an inflight DNS resolution.
 # This is used when multiple identical queries arrive while one upstream lookup
@@ -178,7 +178,7 @@ DNS_CACHE_TTL_SECONDS = 300.0
 # ------------------------------------------------------------------------------
 
 # Timeout for outbound connect attempts made by the server.
-SOCKS_CONNECT_TIMEOUT = 2.0
+SOCKS_CONNECT_TIMEOUT = 8.0
 
 # If true, then in SOCKS5 mode the server does not connect to the final target directly.
 # Instead, it first connects to another SOCKS5 proxy at FORWARD_IP:FORWARD_PORT
@@ -286,4 +286,4 @@ LOG_LEVEL = "INFO"
 
 # ------------------------------------------------------------------------------
 
-CONFIG_VERSION = "10"
+CONFIG_VERSION = "11"
