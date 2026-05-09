@@ -183,6 +183,25 @@ Installer options:
 | `--uninstall` | Remove the systemd service, tuning files, binary, config, and key from the install directory |
 | `--help` | Show installer usage |
 
+Install a specific release tag with `--version`:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/nullroute1970/StormDNS/main/server_linux_install.sh) --version vYYYY.MM.DD.HHMMSS-commithash
+```
+
+Use the exact tag shown on the
+[GitHub releases page](https://github.com/nullroute1970/StormDNS/releases).
+Release tags normally use the `vYYYY.MM.DD.HHMMSS-commithash` format; replace
+the placeholder with a real tag before running the command.
+
+Uninstall the server service and files with `--uninstall`:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/nullroute1970/StormDNS/main/server_linux_install.sh) --uninstall
+```
+
+`--version` cannot be combined with `--local` or `--uninstall`.
+
 Useful service commands:
 
 ```bash

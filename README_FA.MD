@@ -184,6 +184,25 @@ bash <(curl -Ls https://raw.githubusercontent.com/nullroute1970/StormDNS/main/se
 | `--uninstall` | حذف service، tuningها، binary، config و key از پوشه نصب |
 | `--help` | نمایش راهنمای installer |
 
+نصب یک release tag مشخص با `--version`:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/nullroute1970/StormDNS/main/server_linux_install.sh) --version vYYYY.MM.DD.HHMMSS-commithash
+```
+
+tag را دقیقاً مطابق مقدار موجود در
+[GitHub releases](https://github.com/nullroute1970/StormDNS/releases)
+وارد کنید. release tagها معمولاً فرمت `vYYYY.MM.DD.HHMMSS-commithash` دارند؛
+قبل از اجرای دستور، placeholder را با یک tag واقعی جایگزین کنید.
+
+حذف service و فایل‌های سرور با `--uninstall`:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/nullroute1970/StormDNS/main/server_linux_install.sh) --uninstall
+```
+
+`--version` را نمی‌توان هم‌زمان با `--local` یا `--uninstall` استفاده کرد.
+
 دستورهای مفید service:
 
 ```bash
