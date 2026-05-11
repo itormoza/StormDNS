@@ -27,6 +27,12 @@ func waitForResolverHealthCondition(t *testing.T, timeout time.Duration, cond fu
 	t.Fatal(message)
 }
 
+func allowResolverWarmup(c *Client) {
+	c.warmupResolverConnectionFn = func(ctx context.Context, conn *Connection) bool {
+		return conn != nil
+	}
+}
+
 func TestResolverHealthAutoDisablesTimeoutOnlyConnection(t *testing.T) {
 	c := buildTestClientWithResolvers(config.ClientConfig{
 		AutoDisableTimeoutServers:       true,
@@ -84,6 +90,7 @@ func TestResolverHealthRecheckReactivatesConnection(t *testing.T) {
 	}
 
 	c.initResolverRecheckMeta()
+	allowResolverWarmup(c)
 	c.recheckConnectionFn = func(conn *Connection) bool {
 		return conn != nil && conn.Key == "a"
 	}
@@ -142,6 +149,57 @@ func TestResolverHealthRecheckReactivatesConnection(t *testing.T) {
 	}
 }
 
+func TestResolverHealthWarmupFailureKeepsRecheckedResolverInvalid(t *testing.T) {
+	c := buildTestClientWithResolvers(config.ClientConfig{
+		RecheckInactiveServersEnabled:  true,
+		RecheckInactiveIntervalSeconds: 60.0,
+		RecheckServerIntervalSeconds:   3.0,
+		RecheckBatchSize:               1,
+	}, "a", "b")
+	c.successMTUChecks = true
+	c.syncedUploadMTU = 120
+	c.syncedDownloadMTU = 180
+
+	if !c.balancer.SetConnectionValidity("a", false) {
+		t.Fatal("expected resolver a to become invalid")
+	}
+
+	c.initResolverRecheckMeta()
+	c.recheckConnectionFn = func(conn *Connection) bool {
+		return conn != nil && conn.Key == "a"
+	}
+
+	var warmups atomic.Int32
+	c.warmupResolverConnectionFn = func(ctx context.Context, conn *Connection) bool {
+		warmups.Add(1)
+		return false
+	}
+
+	now := time.Date(2026, 3, 25, 12, 45, 0, 0, time.UTC)
+	c.nowFn = func() time.Time { return now }
+
+	c.resolverHealthMu.Lock()
+	c.resolverRecheck["a"] = resolverRecheckState{NextAt: now.Add(-time.Second)}
+	c.resolverHealthMu.Unlock()
+
+	c.runResolverRecheckBatch(context.Background(), now)
+
+	waitForResolverHealthCondition(t, 500*time.Millisecond, func() bool {
+		conn, ok := c.GetConnectionByKey("a")
+		if !ok || conn.IsValid {
+			return false
+		}
+		c.resolverHealthMu.Lock()
+		defer c.resolverHealthMu.Unlock()
+		meta := c.resolverRecheck["a"]
+		return !meta.InFlight && meta.FailCount == 1 && meta.NextAt.After(now)
+	}, "expected warmup failure to keep resolver invalid and schedule retry")
+
+	if warmups.Load() != 1 {
+		t.Fatalf("expected warmup to run once, got %d", warmups.Load())
+	}
+}
+
 func TestResolverHealthRecheckUsesSnapshotUpdateInsteadOfMutatingSharedConnectionPointer(t *testing.T) {
 	c := buildTestClientWithResolvers(config.ClientConfig{
 		RecheckInactiveServersEnabled:  true,
@@ -165,6 +223,7 @@ func TestResolverHealthRecheckUsesSnapshotUpdateInsteadOfMutatingSharedConnectio
 	c.balancer.RefreshValidConnections()
 
 	c.initResolverRecheckMeta()
+	allowResolverWarmup(c)
 	now := time.Date(2026, 3, 31, 8, 0, 0, 0, time.UTC)
 	c.nowFn = func() time.Time { return now }
 
@@ -680,6 +739,7 @@ func TestResolverHealthRecheckBatchHonorsLimit(t *testing.T) {
 	}
 
 	c.initResolverRecheckMeta()
+	allowResolverWarmup(c)
 	c.recheckConnectionFn = func(conn *Connection) bool {
 		return conn != nil
 	}
@@ -740,6 +800,7 @@ func TestResolverHealthRecheckBatchSkipsNotYetDueResolvers(t *testing.T) {
 	}
 
 	c.initResolverRecheckMeta()
+	allowResolverWarmup(c)
 
 	seen := make(map[string]int)
 	c.recheckConnectionFn = func(conn *Connection) bool {

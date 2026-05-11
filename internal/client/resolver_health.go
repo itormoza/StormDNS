@@ -7,7 +7,10 @@ import (
 	"sort"
 	"time"
 
+	"stormdns-go/internal/client/handlers"
+	Enums "stormdns-go/internal/enums"
 	"stormdns-go/internal/logger"
+	VpnProto "stormdns-go/internal/vpnproto"
 )
 
 type resolverHealthEvent struct {
@@ -49,7 +52,10 @@ type resolverAutoDisableCandidate struct {
 	timeoutOnlyAge time.Duration
 }
 
-const runtimeDisabledResolverReactivationSuccessThreshold = 2
+const (
+	runtimeDisabledResolverReactivationSuccessThreshold = 2
+	resolverReactivationWarmupPings                     = 3
+)
 
 func (c *Client) resolverHealthDebugEnabled() bool {
 	return c != nil && c.log != nil && c.log.Enabled(logger.LevelDebug)
@@ -598,8 +604,7 @@ func (c *Client) runResolverRecheckBatch(ctx context.Context, now time.Time) {
 				}
 			}()
 
-			if c.recheckResolverConnection(ctx, &cn) {
-				c.handleSuccessfulResolverRecheck(cand.key, c.now())
+			if c.recheckResolverConnection(ctx, &cn) && c.handleSuccessfulResolverRecheck(ctx, cand.key, c.now()) {
 				return
 			}
 
@@ -608,9 +613,9 @@ func (c *Client) runResolverRecheckBatch(ctx context.Context, now time.Time) {
 	}
 }
 
-func (c *Client) handleSuccessfulResolverRecheck(serverKey string, now time.Time) {
+func (c *Client) handleSuccessfulResolverRecheck(ctx context.Context, serverKey string, now time.Time) bool {
 	if c == nil || serverKey == "" {
-		return
+		return true
 	}
 
 	c.resolverHealthMu.Lock()
@@ -627,23 +632,134 @@ func (c *Client) handleSuccessfulResolverRecheck(serverKey string, now time.Time
 			state.RetryCount = meta.FailCount
 			c.runtimeDisabled[serverKey] = state
 			c.resolverHealthMu.Unlock()
-			return
+			return true
 		}
 	}
 	c.resolverHealthMu.Unlock()
 
 	if !c.applyRecheckedResolverMTU(serverKey) {
 		c.clearResolverRecheckInFlight(serverKey)
-		return
+		return true
+	}
+
+	conn, ok := c.GetConnectionByKey(serverKey)
+	if !ok {
+		c.clearResolverRecheckInFlight(serverKey)
+		return true
+	}
+
+	if !c.warmupResolverConnection(ctx, &conn) {
+		return false
 	}
 
 	if !c.reactivateResolverConnection(serverKey) {
 		c.clearResolverRecheckInFlight(serverKey)
-		return
+		return true
 	}
 
 	if conn, ok := c.GetConnectionByKey(serverKey); ok {
 		c.appendResolverCacheEntry(&conn)
+	}
+	return true
+}
+
+func (c *Client) warmupResolverConnection(ctx context.Context, conn *Connection) bool {
+	if c == nil || conn == nil || conn.Key == "" {
+		return false
+	}
+	if c.warmupResolverConnectionFn != nil {
+		return c.warmupResolverConnectionFn(ctx, conn)
+	}
+	if !c.SessionReady() || c.sessionID == 0 {
+		return false
+	}
+
+	timeout := c.resolverWarmupTimeout()
+	for attempt := 0; attempt < resolverReactivationWarmupPings; attempt++ {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return false
+			}
+		}
+
+		packet, err := c.sendResolverWarmupPing(*conn, timeout)
+		if err != nil {
+			if c.log != nil && c.log.Enabled(logger.LevelDebug) {
+				c.log.Debugf(
+					"<yellow>Resolver warmup ping failed</yellow> <magenta>|</magenta> <blue>Resolver</blue>: <cyan>%s</cyan> <magenta>|</magenta> <blue>Attempt</blue>: <cyan>%d/%d</cyan> <magenta>|</magenta> <blue>Error</blue>: <red>%v</red>",
+					conn.ResolverLabel,
+					attempt+1,
+					resolverReactivationWarmupPings,
+					err,
+				)
+			}
+			return false
+		}
+		c.handleResolverWarmupPacket(packet)
+	}
+
+	return true
+}
+
+func (c *Client) resolverWarmupTimeout() time.Duration {
+	if c == nil {
+		return 5 * time.Second
+	}
+	timeout := c.tunnelPacketTimeout
+	if timeout <= 0 {
+		timeout = c.mtuTestTimeout
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if timeout < 500*time.Millisecond {
+		return 500 * time.Millisecond
+	}
+	return timeout
+}
+
+func (c *Client) sendResolverWarmupPing(conn Connection, timeout time.Duration) (VpnProto.Packet, error) {
+	payload, err := buildClientPingPayload()
+	if err != nil {
+		return VpnProto.Packet{}, err
+	}
+
+	query, err := c.buildTunnelQuery(conn.Domain, conn.TunnelRecordType, VpnProto.BuildOptions{
+		SessionID:     c.sessionID,
+		PacketType:    Enums.PACKET_PING,
+		SessionCookie: c.sessionCookie,
+		Payload:       payload,
+	})
+	if err != nil {
+		return VpnProto.Packet{}, err
+	}
+
+	sentAt := c.now()
+	c.noteResolverSend(conn.Key)
+	packet, err := c.exchangeDNSOverConnection(conn, query, timeout)
+	if err != nil {
+		return VpnProto.Packet{}, err
+	}
+	c.noteResolverSuccess(conn.Key, c.now().Sub(sentAt))
+	return packet, nil
+}
+
+func (c *Client) handleResolverWarmupPacket(packet VpnProto.Packet) {
+	if c == nil {
+		return
+	}
+	c.NotifyPacket(packet.PacketType, true)
+	if c.pollManager != nil {
+		c.pollManager.NotifyInbound()
+	}
+	if packet.PacketType == Enums.PACKET_PONG {
+		return
+	}
+	if handled := c.preprocessInboundPacket(packet); handled {
+		return
+	}
+	if err := handlers.Dispatch(c, packet, nil); err != nil && c.log != nil {
+		c.log.Warnf("\U0001F6A8 <red>Warmup packet handler failed: %v</red>", err)
 	}
 }
 

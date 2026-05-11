@@ -41,24 +41,25 @@ type Client struct {
 	codec    *security.Codec
 	balancer *Balancer
 
-	connections         []Connection
-	connectionsByKey    map[string]int
-	successMTUChecks    bool
-	udpBufferPool       sync.Pool
-	resolverConnsMu     sync.Mutex
-	resolverConns       map[string]chan pooledUDPConn
-	resolverAddrMu      sync.RWMutex
-	resolverAddrCache   map[string]*net.UDPAddr
-	resolverStatsMu     sync.RWMutex
-	resolverPending     map[resolverSampleKey]resolverSample
-	resolverInflight    map[string]int
-	resolverHealthMu    sync.RWMutex
-	resolverHealth      map[string]*resolverHealthState
-	resolverRecheck     map[string]resolverRecheckState
-	runtimeDisabled     map[string]resolverDisabledState
-	resolverRecheckSem  chan struct{}
-	nowFn               func() time.Time
-	recheckConnectionFn func(conn *Connection) bool
+	connections                []Connection
+	connectionsByKey           map[string]int
+	successMTUChecks           bool
+	udpBufferPool              sync.Pool
+	resolverConnsMu            sync.Mutex
+	resolverConns              map[string]chan pooledUDPConn
+	resolverAddrMu             sync.RWMutex
+	resolverAddrCache          map[string]*net.UDPAddr
+	resolverStatsMu            sync.RWMutex
+	resolverPending            map[resolverSampleKey]resolverSample
+	resolverInflight           map[string]int
+	resolverHealthMu           sync.RWMutex
+	resolverHealth             map[string]*resolverHealthState
+	resolverRecheck            map[string]resolverRecheckState
+	runtimeDisabled            map[string]resolverDisabledState
+	resolverRecheckSem         chan struct{}
+	nowFn                      func() time.Time
+	recheckConnectionFn        func(conn *Connection) bool
+	warmupResolverConnectionFn func(ctx context.Context, conn *Connection) bool
 
 	// MTU States
 	syncedUploadMTU                       int

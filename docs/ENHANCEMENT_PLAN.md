@@ -264,6 +264,8 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 
 ### 5B. Resolver Warmup After Reactivation
 
+**Status**: Completed.
+
 **Problem**: When a resolver is reactivated after a recheck, it's seeded with conservative stats (80% delivery). But the first few packets might still fail because the resolver's DNS cache or NAT mapping is cold.
 
 **Proposal**:
