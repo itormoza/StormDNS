@@ -499,6 +499,32 @@ func (c *Client) Run(ctx context.Context) error {
 
 				c.successMTUChecks = true
 				c.ShortPrintBanner()
+
+				c.log.Infof("\U0001F50D <cyan>Secondary Resolver Health Recheck...</cyan>")
+				// Stop the client app to recheck the resolvers immediately after the initial scan.
+				// Why? Because the initial MTU scan only proves basic packet passing capability over 1-2 attempts.
+				// A secondary health recheck ensures the selected resolver(s) are consistently reachable and stable
+				// before committing to the full session initialization, mitigating issues where a temporarily 'lucky'
+				// sub-optimal resolver gets picked and subsequently stalls the tunnel.
+				allFailed := true
+				for i := range c.connections {
+					conn := &c.connections[i]
+					if conn.IsValid {
+						if !c.recheckResolverConnection(ctx, conn) {
+							c.log.Warnf("<yellow>Resolver %s failed secondary recheck, marking invalid</yellow>", conn.ResolverLabel)
+							c.balancer.SetConnectionValidity(conn.Key, false)
+							conn.IsValid = false
+						} else {
+							allFailed = false
+						}
+					}
+				}
+
+				if allFailed {
+					c.log.Errorf("<red>❌ All resolvers failed secondary health recheck.</red>")
+					c.successMTUChecks = false
+					continue
+				}
 			}
 
 			if !c.sessionReady {

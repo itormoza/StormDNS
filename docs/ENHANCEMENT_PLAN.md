@@ -294,6 +294,23 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 
 ---
 
+### 5D. Secondary Resolver Recheck After Scan
+
+**Status**: Completed.
+
+**Problem**: The initial MTU scan only proves basic packet passing capability over 1-2 attempts. A temporarily "lucky" sub-optimal resolver might pass the initial scan but fail immediately after, stalling the tunnel session initialization.
+
+**Proposal**:
+- Stop the client application flow immediately after the initial MTU scan and before session initialization.
+- Perform a secondary health recheck on all valid resolvers to ensure they are consistently reachable and stable.
+- Mark any resolvers that fail this secondary recheck as invalid before committing to the session.
+
+**Impact**: Mitigates issues where sub-optimal or unreachable resolvers are picked during the initial scan, ensuring a more stable and robust initial tunnel session.
+
+**Files**: `client.go`
+
+---
+
 ## 6. Server Scalability
 
 ### 6A. Sharded Session Locks
