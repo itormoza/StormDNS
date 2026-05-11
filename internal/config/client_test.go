@@ -261,14 +261,14 @@ ENCRYPTION_KEY = "secret"
 	if cfg.LocalDNSCacheMaxRecords != 2000 {
 		t.Fatalf("unexpected local dns records default: got=%d want=%d", cfg.LocalDNSCacheMaxRecords, 2000)
 	}
-	if cfg.ARQInitialRTOSeconds != 0.6 || cfg.ARQMaxRTOSeconds != 3.0 {
+	if cfg.ARQInitialRTOSeconds != 0.3 || cfg.ARQMaxRTOSeconds != 2.0 {
 		t.Fatalf("unexpected arq rto defaults: initial=%v max=%v", cfg.ARQInitialRTOSeconds, cfg.ARQMaxRTOSeconds)
 	}
-	if cfg.ARQDataNackMaxGap != 64 {
-		t.Fatalf("unexpected ARQ data NACK gap default: got=%d want=64", cfg.ARQDataNackMaxGap)
+	if cfg.ARQDataNackMaxGap != 128 {
+		t.Fatalf("unexpected ARQ data NACK gap default: got=%d want=128", cfg.ARQDataNackMaxGap)
 	}
-	if cfg.ARQDataNackRepeatSeconds != 0.8 {
-		t.Fatalf("unexpected ARQ data NACK repeat default: got=%v want=%v", cfg.ARQDataNackRepeatSeconds, 0.8)
+	if cfg.ARQDataNackRepeatSeconds != 0.4 {
+		t.Fatalf("unexpected ARQ data NACK repeat default: got=%v want=%v", cfg.ARQDataNackRepeatSeconds, 0.4)
 	}
 	if cfg.ARQMaxControlRetries != 120 || cfg.ARQMaxDataRetries != 120 {
 		t.Fatalf("unexpected arq retry defaults: control=%d data=%d", cfg.ARQMaxControlRetries, cfg.ARQMaxDataRetries)
