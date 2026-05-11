@@ -294,6 +294,8 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 
 ### 6A. Sharded Session Locks
 
+**Status**: Completed.
+
 **Problem**: The `sessionStore` uses a single `sync.RWMutex` for all 255 sessions. Under high user count, `ValidateAndTouch()` contention causes the "sticking" behavior reported.
 
 **Proposal**: Shard the session store:

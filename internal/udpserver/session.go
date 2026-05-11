@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -29,6 +29,7 @@ var ErrSessionTableFull = errors.New("session table full")
 const (
 	maxServerSessionID    = 255
 	maxServerSessionSlots = 255
+	sessionStoreShards    = 16
 	sessionInitDataSize   = 10
 	minSessionMTU         = 10
 	maxSessionMTU         = 4096
@@ -167,8 +168,13 @@ type idleDeferredCleanup struct {
 	lastActivityNano int64
 }
 
+type sessionStoreShard struct {
+	mu sync.RWMutex
+}
+
 type sessionStore struct {
 	mu                     sync.RWMutex
+	shards                 [sessionStoreShards]sessionStoreShard
 	nextID                 uint16
 	activeCount            uint16
 	nextReuseSweepUnixNano int64
@@ -176,7 +182,7 @@ type sessionStore struct {
 	cookieIndex            int
 	byID                   [maxServerSessionID + 1]*sessionRecord
 	bySig                  map[[sessionInitDataSize]byte]uint8
-	recentClosed           map[uint8]closedSessionRecord
+	recentClosed           [maxServerSessionID + 1]closedSessionRecord
 	orphanQueueCap         int
 	streamQueueCap         int
 	maxStreamsPerSession   int
@@ -233,7 +239,6 @@ func newSessionStore(orphanQueueCap int, streamQueueCap int, options ...any) *se
 	}
 	return &sessionStore{
 		bySig:                make(map[[sessionInitDataSize]byte]uint8, 64),
-		recentClosed:         make(map[uint8]closedSessionRecord, 32),
 		cookieIndex:          32,
 		nextID:               1,
 		orphanQueueCap:       orphanQueueCap,
@@ -243,6 +248,10 @@ func newSessionStore(orphanQueueCap int, streamQueueCap int, options ...any) *se
 		recentlyClosedTTL:    recentlyClosedTTL,
 		recentlyClosedCap:    recentlyClosedCap,
 	}
+}
+
+func (s *sessionStore) shardForSession(sessionID uint8) *sessionStoreShard {
+	return &s.shards[int(sessionID)%sessionStoreShards]
 }
 
 func (s *sessionStore) findOrCreate(payload []byte, uploadCompressionType uint8, downloadCompressionType uint8, maxPacketsPerBatch int) (*sessionRecord, bool, error) {
@@ -276,20 +285,20 @@ func (s *sessionStore) findOrCreate(payload []byte, uploadCompressionType uint8,
 	}
 
 	record := &sessionRecord{
-		ID:                uint8(slot),
-		ResponseMode:      payload[0],
-		CreatedAt:         now,
-		ReuseUntil:        now.Add(s.sessionInitTTL),
-		Signature:         signature,
+		ID:                  uint8(slot),
+		ResponseMode:        payload[0],
+		CreatedAt:           now,
+		ReuseUntil:          now.Add(s.sessionInitTTL),
+		Signature:           signature,
 		Streams:             make(map[uint16]*Stream_server),
 		ActiveStreams:       make([]uint16, 0, 8),
 		StreamQueueCap:      s.streamQueueCap,
 		MaxStreams:          s.maxStreamsPerSession,
 		streamCapRejections: &s.streamCapRejections,
 		RecentlyClosed:      make(map[uint16]recentlyClosedStreamRecord, 8),
-		RecentlyClosedTTL: s.recentlyClosedTTL,
-		RecentlyClosedCap: s.recentlyClosedCap,
-		OrphanQueue:       mlq.New[VpnProto.Packet](s.orphanQueueCap),
+		RecentlyClosedTTL:   s.recentlyClosedTTL,
+		RecentlyClosedCap:   s.recentlyClosedCap,
+		OrphanQueue:         mlq.New[VpnProto.Packet](s.orphanQueueCap),
 	}
 
 	// Initialize virtual Stream 0 for control packets
@@ -306,11 +315,16 @@ func (s *sessionStore) findOrCreate(payload []byte, uploadCompressionType uint8,
 	copy(record.VerifyCode[:], payload[6:10])
 	record.Cookie = s.randomCookieLocked()
 
+	slotID := uint8(slot)
+	shard := s.shardForSession(slotID)
+	shard.mu.Lock()
 	s.byID[slot] = record
+	s.recentClosed[slot] = closedSessionRecord{}
+	shard.mu.Unlock()
+
 	s.activeCount++
-	s.bySig[signature] = uint8(slot)
+	s.bySig[signature] = slotID
 	s.updateNextReuseSweepLocked(record.reuseUntilUnixNano)
-	delete(s.recentClosed, uint8(slot))
 	s.nextID = uint16(nextSessionID(uint8(slot)))
 	return record, false, nil
 }
@@ -339,8 +353,14 @@ func (s *sessionStore) expireReuseLocked(nowUnixNano int64) {
 }
 
 func (s *sessionStore) Get(sessionID uint8) (*sessionRecord, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if s == nil || sessionID == 0 {
+		return nil, false
+	}
+
+	shard := s.shardForSession(sessionID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
 	record := s.byID[sessionID]
 	if record == nil || record.isClosed() {
 		return nil, false
@@ -353,17 +373,23 @@ func (s *sessionStore) HasActive(sessionID uint8) bool {
 		return false
 	}
 
-	s.mu.RLock()
+	shard := s.shardForSession(sessionID)
+	shard.mu.RLock()
 	record := s.byID[sessionID]
-	s.mu.RUnlock()
+	shard.mu.RUnlock()
 	return record != nil && !record.isClosed()
 }
 
 func (s *sessionStore) Lookup(sessionID uint8) (sessionLookupResult, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if s == nil || sessionID == 0 {
+		return sessionLookupResult{}, false
+	}
 
-	if record := s.byID[sessionID]; record != nil {
+	shard := s.shardForSession(sessionID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
+	if record := s.byID[sessionID]; record != nil && !record.isClosed() {
 		return sessionLookupResult{
 			Cookie:       record.Cookie,
 			ResponseMode: record.ResponseMode,
@@ -371,7 +397,7 @@ func (s *sessionStore) Lookup(sessionID uint8) (sessionLookupResult, bool) {
 		}, true
 	}
 
-	if record, ok := s.recentClosed[sessionID]; ok {
+	if record := s.recentClosed[sessionID]; !record.ExpiresAt.IsZero() {
 		return sessionLookupResult{
 			Cookie:       record.Cookie,
 			ResponseMode: record.ResponseMode,
@@ -383,8 +409,13 @@ func (s *sessionStore) Lookup(sessionID uint8) (sessionLookupResult, bool) {
 }
 
 func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.Time) sessionValidationResult {
-	s.mu.RLock()
-	if record := s.byID[sessionID]; record != nil {
+	if s == nil || sessionID == 0 {
+		return sessionValidationResult{}
+	}
+
+	shard := s.shardForSession(sessionID)
+	shard.mu.RLock()
+	if record := s.byID[sessionID]; record != nil && !record.isClosed() {
 		result := sessionValidationResult{
 			Lookup: sessionLookupResult{
 				Cookie:       record.Cookie,
@@ -398,15 +429,15 @@ func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.
 			view := record.runtimeView()
 			result.Active = &view
 		}
-		s.mu.RUnlock()
+		shard.mu.RUnlock()
 		if result.Valid {
 			record.setLastActivity(now)
 		}
 		return result
 	}
 
-	if record, ok := s.recentClosed[sessionID]; ok {
-		s.mu.RUnlock()
+	if record := s.recentClosed[sessionID]; !record.ExpiresAt.IsZero() {
+		shard.mu.RUnlock()
 		return sessionValidationResult{
 			Lookup: sessionLookupResult{
 				Cookie:       record.Cookie,
@@ -418,13 +449,21 @@ func (s *sessionStore) ValidateAndTouch(sessionID uint8, cookie uint8, now time.
 		}
 	}
 
-	s.mu.RUnlock()
+	shard.mu.RUnlock()
 	return sessionValidationResult{}
 }
 
 func (s *sessionStore) Close(sessionID uint8, now time.Time, retention time.Duration) (*sessionRecord, bool) {
+	if s == nil || sessionID == 0 {
+		return nil, false
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	shard := s.shardForSession(sessionID)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
 	record := s.byID[sessionID]
 	if record == nil {
@@ -444,22 +483,31 @@ func (s *sessionStore) Close(sessionID uint8, now time.Time, retention time.Dura
 			ExpiresAt:    now.Add(retention),
 		}
 	} else {
-		delete(s.recentClosed, sessionID)
+		s.recentClosed[sessionID] = closedSessionRecord{}
 	}
 	return record, true
 }
 
 func (s *sessionStore) Cleanup(now time.Time, idleTimeout time.Duration, closedRetention time.Duration) []closedSessionCleanup {
+	if s == nil {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	nowUnixNano := now.UnixNano()
 	s.expireReuseLocked(nowUnixNano)
 
-	for sessionID, record := range s.recentClosed {
-		if !now.Before(record.ExpiresAt) {
-			delete(s.recentClosed, sessionID)
+	for sessionID := 1; sessionID <= maxServerSessionID; sessionID++ {
+		sessionID8 := uint8(sessionID)
+		shard := s.shardForSession(sessionID8)
+		shard.mu.Lock()
+		record := s.recentClosed[sessionID]
+		if !record.ExpiresAt.IsZero() && !now.Before(record.ExpiresAt) {
+			s.recentClosed[sessionID] = closedSessionRecord{}
 		}
+		shard.mu.Unlock()
 	}
 
 	if idleTimeout <= 0 {
@@ -469,13 +517,17 @@ func (s *sessionStore) Cleanup(now time.Time, idleTimeout time.Duration, closedR
 	expired := make([]closedSessionCleanup, 0, 8)
 	idleTimeoutNanos := idleTimeout.Nanoseconds()
 	for sessionID := 1; sessionID <= maxServerSessionID; sessionID++ {
+		sessionID8 := uint8(sessionID)
+		shard := s.shardForSession(sessionID8)
+		shard.mu.Lock()
 		record := s.byID[sessionID]
 		if record == nil {
+			shard.mu.Unlock()
 			continue
 		}
-
 		lastActivityUnixNano := record.lastActivity()
 		if lastActivityUnixNano != 0 && nowUnixNano-lastActivityUnixNano < idleTimeoutNanos {
+			shard.mu.Unlock()
 			continue
 		}
 
@@ -485,15 +537,19 @@ func (s *sessionStore) Cleanup(now time.Time, idleTimeout time.Duration, closedR
 			s.activeCount--
 		}
 		if closedRetention > 0 {
-			s.recentClosed[uint8(sessionID)] = closedSessionRecord{
+			s.recentClosed[sessionID] = closedSessionRecord{
 				Cookie:       record.Cookie,
 				ResponseMode: record.ResponseMode,
 				ExpiresAt:    now.Add(closedRetention),
 			}
+		} else {
+			s.recentClosed[sessionID] = closedSessionRecord{}
 		}
 		record.markClosed()
+		shard.mu.Unlock()
+
 		expired = append(expired, closedSessionCleanup{
-			ID:     uint8(sessionID),
+			ID:     sessionID8,
 			record: record,
 		})
 	}
@@ -502,14 +558,7 @@ func (s *sessionStore) Cleanup(now time.Time, idleTimeout time.Duration, closedR
 }
 
 func (s *sessionStore) SweepTerminalStreams(now time.Time, retention time.Duration) {
-	s.mu.RLock()
-	records := make([]*sessionRecord, 0, len(s.byID))
-	for _, record := range s.byID {
-		if record != nil {
-			records = append(records, record)
-		}
-	}
-	s.mu.RUnlock()
+	records := s.activeRecordsSnapshot()
 
 	for _, record := range records {
 		record.cleanupTerminalStreams(now, retention)
@@ -517,18 +566,30 @@ func (s *sessionStore) SweepTerminalStreams(now time.Time, retention time.Durati
 }
 
 func (s *sessionStore) SweepRecentlyClosedStreams(now time.Time) {
-	s.mu.RLock()
-	records := make([]*sessionRecord, 0, len(s.byID))
-	for _, record := range s.byID {
-		if record != nil {
-			records = append(records, record)
-		}
-	}
-	s.mu.RUnlock()
+	records := s.activeRecordsSnapshot()
 
 	for _, record := range records {
 		record.pruneRecentlyClosed(now)
 	}
+}
+
+func (s *sessionStore) activeRecordsSnapshot() []*sessionRecord {
+	if s == nil {
+		return nil
+	}
+
+	records := make([]*sessionRecord, 0, maxServerSessionID)
+	for sessionID := 1; sessionID <= maxServerSessionID; sessionID++ {
+		sessionID8 := uint8(sessionID)
+		shard := s.shardForSession(sessionID8)
+		shard.mu.RLock()
+		record := s.byID[sessionID]
+		if record != nil && !record.isClosed() {
+			records = append(records, record)
+		}
+		shard.mu.RUnlock()
+	}
+	return records
 }
 
 func (s *sessionStore) allocateSlotLocked() int {
@@ -601,10 +662,7 @@ func (r *sessionRecord) lastActivity() int64 {
 }
 
 func (s *sessionStore) CollectIdleDeferredSessions(now time.Time, idleTimeout time.Duration) []idleDeferredCleanup {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if idleTimeout <= 0 {
+	if s == nil || idleTimeout <= 0 {
 		return nil
 	}
 
@@ -613,22 +671,30 @@ func (s *sessionStore) CollectIdleDeferredSessions(now time.Time, idleTimeout ti
 	idle := make([]idleDeferredCleanup, 0, 4)
 
 	for sessionID := 1; sessionID <= maxServerSessionID; sessionID++ {
+		sessionID8 := uint8(sessionID)
+		shard := s.shardForSession(sessionID8)
+		shard.mu.RLock()
 		record := s.byID[sessionID]
 		if record == nil || record.isClosed() {
+			shard.mu.RUnlock()
 			continue
 		}
 
 		lastActivityUnixNano := record.lastActivity()
 		if lastActivityUnixNano == 0 || nowUnixNano-lastActivityUnixNano < idleTimeoutNanos {
+			shard.mu.RUnlock()
 			continue
 		}
 		if record.lastDeferredCleanupActivity() == lastActivityUnixNano {
+			shard.mu.RUnlock()
 			continue
 		}
 
 		record.markDeferredCleanupActivity(lastActivityUnixNano)
+		shard.mu.RUnlock()
+
 		idle = append(idle, idleDeferredCleanup{
-			ID:               uint8(sessionID),
+			ID:               sessionID8,
 			lastActivityNano: lastActivityUnixNano,
 		})
 	}

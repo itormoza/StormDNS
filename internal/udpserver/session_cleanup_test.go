@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -249,7 +249,7 @@ func TestSessionStoreCleanupReturnsExpiredRecordForFollowupCleanup(t *testing.T)
 	if store.byID[record.ID] != nil {
 		t.Fatalf("expected expired session to be removed from active store")
 	}
-	if _, ok := store.recentClosed[record.ID]; !ok {
+	if lookup, ok := store.Lookup(record.ID); !ok || lookup.State != sessionLookupClosed {
 		t.Fatalf("expected expired session to be tracked in recentClosed")
 	}
 	if !record.isClosed() {
@@ -302,6 +302,31 @@ func TestCollectIdleDeferredSessionsMarksIdleActiveSessionOncePerActivityWindow(
 	idle = store.CollectIdleDeferredSessions(time.Now().Add(20*time.Second), 10*time.Second)
 	if len(idle) != 1 || idle[0].ID != record.ID {
 		t.Fatalf("expected fresh idle activity window to schedule cleanup again, got %+v", idle)
+	}
+}
+
+func TestValidateAndTouchDoesNotUseGlobalStoreLock(t *testing.T) {
+	store := newSessionStore(8, 32)
+	record := newTestSessionRecord(33)
+	record.Cookie = 7
+	record.ResponseMode = 1
+	store.byID[record.ID] = record
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	done := make(chan sessionValidationResult, 1)
+	go func() {
+		done <- store.ValidateAndTouch(record.ID, record.Cookie, time.Now())
+	}()
+
+	select {
+	case result := <-done:
+		if !result.Known || !result.Valid || result.Active == nil || result.Active.ID != record.ID {
+			t.Fatalf("unexpected validation result: %+v", result)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("ValidateAndTouch blocked on the global session store lock")
 	}
 }
 
