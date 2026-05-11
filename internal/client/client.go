@@ -135,6 +135,9 @@ type Client struct {
 	// Autonomous Ping Manager
 	pingManager *PingManager
 
+	// Proactive Download Poll Manager (Enhancement 2B)
+	pollManager *PollManager
+
 	// DNS Management
 	localDNSCache          *dnsCache.Store
 	dnsResponses           *fragmentStore.Store[dnsFragmentKey]
@@ -398,6 +401,7 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 	}
 
 	c.pingManager = newPingManager(c)
+	c.pollManager = newPollManager(c)
 	return c
 }
 
@@ -522,6 +526,10 @@ func (c *Client) Run(ctx context.Context) error {
 
 				if c.pingManager != nil {
 					c.pingManager.Start(ctx)
+				}
+
+				if c.pollManager != nil {
+					c.pollManager.Start(ctx)
 				}
 
 				c.ensureLocalDNSCachePersistence(ctx)

@@ -101,6 +101,9 @@ type ClientConfig struct {
 	PingCoolThresholdSeconds             float64           `toml:"PING_COOL_THRESHOLD_SECONDS"`
 	PingColdThresholdSeconds             float64           `toml:"PING_COLD_THRESHOLD_SECONDS"`
 	PingWatchdogTimeoutSeconds           float64           `toml:"PING_WATCHDOG_TIMEOUT_SECONDS"`
+	DownloadPollActiveIntervalMs         float64           `toml:"DOWNLOAD_POLL_INTERVAL_ACTIVE_MS"`
+	DownloadPollIdleIntervalMs           float64           `toml:"DOWNLOAD_POLL_INTERVAL_IDLE_MS"`
+	DownloadPollMaxOutstanding           int               `toml:"DOWNLOAD_POLL_MAX_OUTSTANDING"`
 	TXChannelSize                        int               `toml:"TX_CHANNEL_SIZE"`
 	RXChannelSize                        int               `toml:"RX_CHANNEL_SIZE"`
 	ResolverUDPConnectionPoolSize        int               `toml:"RESOLVER_UDP_CONNECTION_POOL_SIZE"`
@@ -224,6 +227,9 @@ func defaultClientConfig() ClientConfig {
 		PingCoolThresholdSeconds:              15.0,
 		PingColdThresholdSeconds:              30.0,
 		PingWatchdogTimeoutSeconds:            300.0,
+		DownloadPollActiveIntervalMs:          50.0,
+		DownloadPollIdleIntervalMs:            500.0,
+		DownloadPollMaxOutstanding:            4,
 		TXChannelSize:                         2048,
 		RXChannelSize:                         2048,
 		ResolverUDPConnectionPoolSize:         256,
@@ -493,6 +499,9 @@ func finalizeClientConfig(cfg ClientConfig) (ClientConfig, error) {
 	cfg.PingCoolThresholdSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingCoolThresholdSeconds, 10.0), cfg.PingWarmThresholdSeconds, 1800.0)
 	cfg.PingColdThresholdSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingColdThresholdSeconds, 20.0), cfg.PingCoolThresholdSeconds, 3600.0)
 	cfg.PingWatchdogTimeoutSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingWatchdogTimeoutSeconds, 300.0), 10.0, 3600.0)
+	cfg.DownloadPollActiveIntervalMs = clampFloat(defaultFloatAtMostZero(cfg.DownloadPollActiveIntervalMs, 50.0), 10.0, 5000.0)
+	cfg.DownloadPollIdleIntervalMs = clampFloat(defaultFloatAtMostZero(cfg.DownloadPollIdleIntervalMs, 500.0), cfg.DownloadPollActiveIntervalMs, 30000.0)
+	cfg.DownloadPollMaxOutstanding = clampInt(defaultIntBelow(cfg.DownloadPollMaxOutstanding, 1, 4), 1, 64)
 	cfg.TXChannelSize = clampInt(defaultIntBelow(cfg.TXChannelSize, 1, 2048), 64, 65536)
 	cfg.RXChannelSize = clampInt(defaultIntBelow(cfg.RXChannelSize, 1, 2048), 64, 65536)
 	cfg.ResolverUDPConnectionPoolSize = clampInt(defaultIntBelow(cfg.ResolverUDPConnectionPoolSize, 1, 64), 1, 1024)
@@ -666,6 +675,18 @@ func (c ClientConfig) PingColdThreshold() time.Duration {
 
 func (c ClientConfig) PingWatchdogTimeout() time.Duration {
 	return time.Duration(c.PingWatchdogTimeoutSeconds * float64(time.Second))
+}
+
+func (c ClientConfig) DownloadPollActiveInterval() time.Duration {
+	return time.Duration(c.DownloadPollActiveIntervalMs * float64(time.Millisecond))
+}
+
+func (c ClientConfig) DownloadPollIdleInterval() time.Duration {
+	return time.Duration(c.DownloadPollIdleIntervalMs * float64(time.Millisecond))
+}
+
+func (c ClientConfig) DownloadPollMaxOutstandingCount() int {
+	return c.DownloadPollMaxOutstanding
 }
 
 func (c ClientConfig) DNSResponseFragmentTimeout() time.Duration {

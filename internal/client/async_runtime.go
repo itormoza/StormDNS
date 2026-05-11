@@ -58,6 +58,10 @@ func (c *Client) StopAsyncRuntime() {
 		c.pingManager.Stop()
 	}
 
+	if c.pollManager != nil {
+		c.pollManager.Stop()
+	}
+
 	c.resetRuntimeBindings(false)
 }
 
@@ -759,8 +763,11 @@ func (c *Client) handleInboundPacket(data []byte, addr *net.UDPAddr, localAddr s
 	// 	}
 	// }
 
-	// 2. Notify activity monitor (PingManager)
+	// 2. Notify activity monitors (PingManager + PollManager)
 	c.NotifyPacket(vpnPacket.PacketType, true)
+	if c.pollManager != nil {
+		c.pollManager.NotifyInbound()
+	}
 
 	// 3. Queue deterministic non-data ACKs before any handler logic runs.
 	if handled := c.preprocessInboundPacket(vpnPacket); handled {
