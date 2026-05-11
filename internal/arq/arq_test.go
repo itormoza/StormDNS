@@ -797,6 +797,38 @@ func TestARQ_ReceiveDataWaitsForInitialNackDelay(t *testing.T) {
 	}
 }
 
+func TestARQ_ReceiveDataFastNacksSeqThreeBehindHighest(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize:                  64,
+		RTO:                         0.2,
+		MaxRTO:                      1.0,
+		DataNackMaxGap:              4,
+		DataNackInitialDelaySeconds: 1.0,
+		DataNackRepeatSeconds:       1.0,
+	})
+	a.Start()
+	defer a.Close("test end", CloseOptions{Force: true})
+
+	a.ReceiveData(3, []byte("packet 3"))
+
+	ack := <-enqueuer.Packets
+	if ack.packetType != Enums.PACKET_STREAM_DATA_ACK || ack.sequenceNum != 3 {
+		t.Fatalf("expected DATA_ACK for seq 3, got %s seq=%d", Enums.PacketTypeName(ack.packetType), ack.sequenceNum)
+	}
+
+	nack := <-enqueuer.Packets
+	if nack.packetType != Enums.PACKET_STREAM_DATA_NACK || nack.sequenceNum != 0 {
+		t.Fatalf("expected immediate fast DATA_NACK for seq 0, got %s seq=%d", Enums.PacketTypeName(nack.packetType), nack.sequenceNum)
+	}
+
+	select {
+	case extra := <-enqueuer.Packets:
+		t.Fatalf("expected only seq 0 to bypass initial NACK delay, got %s seq=%d", Enums.PacketTypeName(extra.packetType), extra.sequenceNum)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestARQ_ReceiveDataClearsPendingInitialNackDelayWhenGapArrives(t *testing.T) {
 	enqueuer := NewMockPacketEnqueuer()
 	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{

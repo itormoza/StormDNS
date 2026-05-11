@@ -1834,7 +1834,8 @@ func (a *ARQ) maybeSendDataNacks(sn uint16) {
 
 	now := time.Now()
 	for _, missing := range missingSeqs {
-		if !a.shouldSendDataNack(missing, now) {
+		immediate := (sn-missing) >= 3 && (sn-missing) < 32768
+		if !a.shouldSendDataNack(missing, now, immediate) {
 			continue
 		}
 		if !a.enqueuer.PushTXPacket(
@@ -1848,16 +1849,16 @@ func (a *ARQ) maybeSendDataNacks(sn uint16) {
 	}
 }
 
-func (a *ARQ) shouldSendDataNack(sn uint16, now time.Time) bool {
+func (a *ARQ) shouldSendDataNack(sn uint16, now time.Time, immediate bool) bool {
 	a.dataNackMu.Lock()
 	defer a.dataNackMu.Unlock()
 
 	firstSeenAt, exists := a.firstDataNackSeen[sn]
 	if !exists {
 		a.firstDataNackSeen[sn] = now
-		return a.dataNackInitialDelay <= 0
+		return immediate || a.dataNackInitialDelay <= 0
 	}
-	if a.dataNackInitialDelay > 0 && now.Sub(firstSeenAt) < a.dataNackInitialDelay {
+	if !immediate && a.dataNackInitialDelay > 0 && now.Sub(firstSeenAt) < a.dataNackInitialDelay {
 		return false
 	}
 

@@ -182,9 +182,9 @@ func defaultServerConfig() ServerConfig {
 		ARQDataPacketTTLSeconds:           1800.0,
 		ARQControlPacketTTLSeconds:        900.0,
 		ARQMaxDataRetries:                 800,
-		ARQDataNackMaxGap:                 0,
-		ARQDataNackInitialDelaySeconds:    0.4,
-		ARQDataNackRepeatSeconds:          1.0,
+		ARQDataNackMaxGap:                 128,
+		ARQDataNackInitialDelaySeconds:    0.10,
+		ARQDataNackRepeatSeconds:          0.4,
 		ARQTerminalDrainTimeoutSec:        90.0,
 		ARQTerminalAckWaitTimeoutSec:      60.0,
 	}
@@ -416,8 +416,8 @@ func finalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	cfg.ARQControlPacketTTLSeconds = clampFloat(defaultFloatAtMostZero(cfg.ARQControlPacketTTLSeconds, 900.0), 30.0, 86400.0)
 	cfg.ARQMaxDataRetries = clampInt(defaultIntBelow(cfg.ARQMaxDataRetries, 1, 800), 60, 100000)
 	cfg.ARQDataNackMaxGap = clampInt(defaultIntBelow(cfg.ARQDataNackMaxGap, 0, 0), 0, cfg.ARQWindowSize/4)
-	cfg.ARQDataNackInitialDelaySeconds = clampFloat(defaultFloatAtMostZero(cfg.ARQDataNackInitialDelaySeconds, 0.0), 0.2, 30.0)
-	cfg.ARQDataNackRepeatSeconds = clampFloat(defaultFloatAtMostZero(cfg.ARQDataNackRepeatSeconds, 2.0), 0.3, 30.0)
+	cfg.ARQDataNackInitialDelaySeconds = clampFloat(defaultFloatAtMostZero(cfg.ARQDataNackInitialDelaySeconds, 0.10), 0.05, 30.0)
+	cfg.ARQDataNackRepeatSeconds = clampFloat(defaultFloatAtMostZero(cfg.ARQDataNackRepeatSeconds, 0.4), 0.08, 30.0)
 	cfg.ARQTerminalDrainTimeoutSec = clampFloat(defaultFloatAtMostZero(cfg.ARQTerminalDrainTimeoutSec, 90.0), 10.0, 3600.0)
 	cfg.ARQTerminalAckWaitTimeoutSec = clampFloat(defaultFloatAtMostZero(cfg.ARQTerminalAckWaitTimeoutSec, 60.0), 5.0, 3600.0)
 

@@ -154,6 +154,15 @@ SOCKS_CONNECT_TIMEOUT = 0
 	if cfg.SOCKSConnectTimeoutSecs != 8.0 {
 		t.Fatalf("unexpected SOCKS_CONNECT_TIMEOUT fallback: got=%v want=8", cfg.SOCKSConnectTimeoutSecs)
 	}
+	if cfg.ARQDataNackMaxGap != 128 {
+		t.Fatalf("unexpected ARQ_DATA_NACK_MAX_GAP default: got=%d want=128", cfg.ARQDataNackMaxGap)
+	}
+	if cfg.ARQDataNackInitialDelaySeconds != 0.10 {
+		t.Fatalf("unexpected ARQ_DATA_NACK_INITIAL_DELAY_SECONDS default: got=%v want=0.1", cfg.ARQDataNackInitialDelaySeconds)
+	}
+	if cfg.ARQDataNackRepeatSeconds != 0.4 {
+		t.Fatalf("unexpected ARQ_DATA_NACK_REPEAT_SECONDS default: got=%v want=0.4", cfg.ARQDataNackRepeatSeconds)
+	}
 }
 
 func TestLoadServerConfigAutoAcceptsImplementedTunnelCarriers(t *testing.T) {

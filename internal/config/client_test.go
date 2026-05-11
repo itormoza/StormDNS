@@ -267,6 +267,9 @@ ENCRYPTION_KEY = "secret"
 	if cfg.ARQDataNackMaxGap != 128 {
 		t.Fatalf("unexpected ARQ data NACK gap default: got=%d want=128", cfg.ARQDataNackMaxGap)
 	}
+	if cfg.ARQDataNackInitialDelaySeconds != 0.10 {
+		t.Fatalf("unexpected ARQ data NACK initial delay default: got=%v want=%v", cfg.ARQDataNackInitialDelaySeconds, 0.10)
+	}
 	if cfg.ARQDataNackRepeatSeconds != 0.4 {
 		t.Fatalf("unexpected ARQ data NACK repeat default: got=%v want=%v", cfg.ARQDataNackRepeatSeconds, 0.4)
 	}

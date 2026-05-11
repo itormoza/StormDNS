@@ -361,13 +361,17 @@ ARQ_MAX_DATA_RETRIES = 120
 
 # Maximum out-of-order gap ahead of rcvNxt that can trigger STREAM_DATA_NACK.
 # 0 disables NACK generation entirely.
-# Keep this small so only near-miss gaps cause early resend requests.
-ARQ_DATA_NACK_MAX_GAP = 64
+# Keep this bounded so only recent gaps cause early resend requests.
+ARQ_DATA_NACK_MAX_GAP = 128
+
+# Initial wait before NACKing a missing sequence. Gaps at least three packets
+# behind the highest received packet bypass this delay.
+# Clamped to [0.05s, 30s].
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.1
 
 # Minimum seconds between repeated NACKs for the same missing sequence number.
-# Clamped to [0.1s, 30s].
-ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.4
-ARQ_DATA_NACK_REPEAT_SECONDS = 0.8
+# Clamped to [0.08s, 30s].
+ARQ_DATA_NACK_REPEAT_SECONDS = 0.4
 
 ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS = 120.0
 ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
