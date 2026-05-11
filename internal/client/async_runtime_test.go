@@ -138,7 +138,7 @@ func TestTrackResolverSendBoundsResolverPendingGrowth(t *testing.T) {
 	c.resolverStatsMu.Unlock()
 
 	packet := []byte{0x12, 0x34}
-	c.trackResolverSend(packet, "127.0.0.1:5300", "", "resolver-a", base)
+	c.trackResolverSend(packet, "127.0.0.1:5300", "", "resolver-a", "", base)
 
 	c.resolverStatsMu.RLock()
 	pendingCount := len(c.resolverPending)

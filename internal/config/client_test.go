@@ -282,6 +282,9 @@ ENCRYPTION_KEY = "secret"
 	if cfg.MTUTestRetries != 3 || cfg.MTUTestTimeout != 2.0 || cfg.MTUTestParallelism != 100 {
 		t.Fatalf("unexpected mtu defaults: retries=%d timeout=%v parallelism=%d", cfg.MTUTestRetries, cfg.MTUTestTimeout, cfg.MTUTestParallelism)
 	}
+	if cfg.SpeculativePipelineWindow != 16 {
+		t.Fatalf("unexpected speculative pipeline window default: got=%d want=16", cfg.SpeculativePipelineWindow)
+	}
 	if cfg.ProtocolType != "TCP" {
 		t.Fatal("tcp mode should be loaded")
 	}

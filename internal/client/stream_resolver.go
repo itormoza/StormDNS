@@ -169,6 +169,75 @@ func (c *Client) selectUniqueRuntimeConnections(requiredCount int) ([]Connection
 	return filtered, nil
 }
 
+func (c *Client) reserveTargetConnectionsForPacket(packetType uint8, streamID uint16) ([]Connection, []string, error) {
+	targetCount := c.runtimePacketDuplicationCount(packetType)
+	if targetCount < 1 {
+		targetCount = 1
+	}
+
+	initial, err := c.selectTargetConnectionsForPacket(packetType, streamID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	selected := make([]Connection, 0, targetCount)
+	inflightKeys := make([]string, 0, targetCount)
+	seenConnections := make(map[string]struct{}, targetCount)
+	sawCandidate := false
+
+	tryReserve := func(connections []Connection) {
+		for _, connection := range connections {
+			if len(selected) >= targetCount {
+				return
+			}
+			if !connection.IsValid || connection.Key == "" {
+				continue
+			}
+			if c.isRuntimeDisabledResolver(connection.Key) {
+				continue
+			}
+			if _, seen := seenConnections[connection.Key]; seen {
+				continue
+			}
+			seenConnections[connection.Key] = struct{}{}
+			sawCandidate = true
+
+			inflightKey := resolverInflightKeyForConnection(connection)
+			if !c.tryReserveResolverInflight(inflightKey) {
+				continue
+			}
+
+			selected = append(selected, connection)
+			inflightKeys = append(inflightKeys, inflightKey)
+		}
+	}
+
+	tryReserve(initial)
+	if len(selected) < targetCount {
+		tryReserve(c.orderedRuntimeConnectionsForPipeline())
+	}
+
+	if len(selected) > 0 {
+		return selected, inflightKeys, nil
+	}
+	if !sawCandidate {
+		return nil, nil, ErrNoValidConnections
+	}
+	return nil, nil, ErrResolverInflightWindowFull
+}
+
+func (c *Client) orderedRuntimeConnectionsForPipeline() []Connection {
+	if c == nil || c.balancer == nil {
+		return nil
+	}
+
+	validCount := c.balancer.ValidCount()
+	if validCount <= 0 {
+		return nil
+	}
+	return c.balancer.GetUniqueConnections(validCount)
+}
+
 func (c *Client) selectStreamPreferredConnectionForResend(stream *Stream_client) (Connection, bool) {
 	if c == nil || stream == nil {
 		return Connection{}, false

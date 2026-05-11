@@ -278,6 +278,11 @@ TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
 # Clamped to [0.001s, 1s].
 DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.020
 
+# Maximum outstanding DNS queries per resolver endpoint.
+# Higher values improve high-latency upload throughput but can trip resolver
+# rate limits. Clamped in code to [1, 256].
+SPECULATIVE_PIPELINE_WINDOW = 16
+
 # Channel sizes for async TX/RX pipelines.
 # Clamped in code to [64, 65536].
 TX_CHANNEL_SIZE = 2048

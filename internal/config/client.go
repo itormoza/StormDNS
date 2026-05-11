@@ -93,6 +93,7 @@ type ClientConfig struct {
 	TunnelProcessWorkers                 int               `toml:"TUNNEL_PROCESS_WORKERS"`
 	TunnelPacketTimeoutSec               float64           `toml:"TUNNEL_PACKET_TIMEOUT_SECONDS"`
 	DispatcherIdlePollIntervalSeconds    float64           `toml:"DISPATCHER_IDLE_POLL_INTERVAL_SECONDS"`
+	SpeculativePipelineWindow            int               `toml:"SPECULATIVE_PIPELINE_WINDOW"`
 	PingAggressiveIntervalSeconds        float64           `toml:"PING_AGGRESSIVE_INTERVAL_SECONDS"`
 	PingLazyIntervalSeconds              float64           `toml:"PING_LAZY_INTERVAL_SECONDS"`
 	PingCooldownIntervalSeconds          float64           `toml:"PING_COOLDOWN_INTERVAL_SECONDS"`
@@ -219,6 +220,7 @@ func defaultClientConfig() ClientConfig {
 		TunnelProcessWorkers:                  4,
 		TunnelPacketTimeoutSec:                10.0,
 		DispatcherIdlePollIntervalSeconds:     0.005,
+		SpeculativePipelineWindow:             16,
 		PingAggressiveIntervalSeconds:         0.100,
 		PingLazyIntervalSeconds:               0.300,
 		PingCooldownIntervalSeconds:           2.0,
@@ -491,6 +493,7 @@ func finalizeClientConfig(cfg ClientConfig) (ClientConfig, error) {
 
 	cfg.TunnelPacketTimeoutSec = clampFloat(defaultFloatAtMostZero(cfg.TunnelPacketTimeoutSec, 8.0), 0.5, 120.0)
 	cfg.DispatcherIdlePollIntervalSeconds = clampFloat(defaultFloatAtMostZero(cfg.DispatcherIdlePollIntervalSeconds, 0.020), 0.001, 1.0)
+	cfg.SpeculativePipelineWindow = clampInt(defaultIntBelow(cfg.SpeculativePipelineWindow, 1, 16), 1, 256)
 	cfg.PingAggressiveIntervalSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingAggressiveIntervalSeconds, 0.100), 0.05, 30.0)
 	cfg.PingLazyIntervalSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingLazyIntervalSeconds, 1.0), cfg.PingAggressiveIntervalSeconds, 60.0)
 	cfg.PingCooldownIntervalSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingCooldownIntervalSeconds, 3.0), cfg.PingLazyIntervalSeconds, 300.0)

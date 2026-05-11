@@ -51,6 +51,7 @@ type Client struct {
 	resolverAddrCache   map[string]*net.UDPAddr
 	resolverStatsMu     sync.RWMutex
 	resolverPending     map[resolverSampleKey]resolverSample
+	resolverInflight    map[string]int
 	resolverHealthMu    sync.RWMutex
 	resolverHealth      map[string]*resolverHealthState
 	resolverRecheck     map[string]resolverRecheckState
@@ -129,8 +130,9 @@ type Client struct {
 	recentlyClosedStreams map[uint16]time.Time
 
 	// Signals to wake up dispatcher.
-	txSignal      chan struct{}
-	txSpaceSignal chan struct{}
+	txSignal       chan struct{}
+	txSpaceSignal  chan struct{}
+	txWindowSignal chan struct{}
 
 	// Autonomous Ping Manager
 	pingManager *PingManager
@@ -182,26 +184,29 @@ type clientStreamTXPacket struct {
 
 // rawOutboundTask holds payload and stream information for parallel packet encoding.
 type rawOutboundTask struct {
-	packetType uint8
-	payload    []byte
-	opts       VpnProto.BuildOptions
-	wasPacked  bool
-	item       *clientStreamTXPacket
-	selected   *Stream_client
-	conns      []Connection
+	packetType   uint8
+	payload      []byte
+	opts         VpnProto.BuildOptions
+	wasPacked    bool
+	item         *clientStreamTXPacket
+	selected     *Stream_client
+	conns        []Connection
+	inflightKeys []string
 }
 
 type encodedOutboundDatagram struct {
-	addr      *net.UDPAddr
-	serverKey string
-	packet    []byte
+	addr        *net.UDPAddr
+	serverKey   string
+	inflightKey string
+	packet      []byte
 }
 
 type encodedOutboundTask struct {
-	wasPacked bool
-	item      *clientStreamTXPacket
-	selected  *Stream_client
-	frames    []encodedOutboundDatagram
+	wasPacked    bool
+	item         *clientStreamTXPacket
+	selected     *Stream_client
+	frames       []encodedOutboundDatagram
+	inflightKeys []string
 }
 
 // Connection represents a unique domain-resolver pair with its associated metadata and MTU states.
@@ -355,6 +360,7 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		resolverConns:                         make(map[string]chan pooledUDPConn),
 		resolverAddrCache:                     make(map[string]*net.UDPAddr),
 		resolverPending:                       make(map[resolverSampleKey]resolverSample),
+		resolverInflight:                      make(map[string]int),
 		resolverHealth:                        make(map[string]*resolverHealthState),
 		resolverRecheck:                       make(map[string]resolverRecheckState),
 		runtimeDisabled:                       make(map[string]resolverDisabledState),
@@ -375,6 +381,7 @@ func New(cfg config.ClientConfig, log *logger.Logger, codec *security.Codec) *Cl
 		recentlyClosedStreams: make(map[uint16]time.Time),
 		txSignal:              make(chan struct{}, 1),
 		txSpaceSignal:         make(chan struct{}, 1),
+		txWindowSignal:        make(chan struct{}, 1),
 
 		// DNS Management
 		localDNSCache: dnsCache.New(

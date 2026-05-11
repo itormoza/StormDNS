@@ -20,11 +20,13 @@ type resolverSampleKey struct {
 }
 
 type resolverSample struct {
-	serverKey  string
-	sentAt     time.Time
-	timedOut   bool
-	timedOutAt time.Time
-	evictAfter time.Time
+	serverKey        string
+	inflightKey      string
+	inflightReleased bool
+	sentAt           time.Time
+	timedOut         bool
+	timedOutAt       time.Time
+	evictAfter       time.Time
 }
 
 type resolverTimeoutObservation struct {
@@ -65,9 +67,9 @@ func (c *Client) noteResolverSuccess(serverKey string, rtt time.Duration) {
 	c.recordResolverHealthEvent(serverKey, true, c.now())
 }
 
-func (c *Client) trackResolverSend(packet []byte, resolverAddr string, localAddr string, serverKey string, sentAt time.Time) {
+func (c *Client) trackResolverSend(packet []byte, resolverAddr string, localAddr string, serverKey string, inflightKey string, sentAt time.Time) bool {
 	if c == nil || len(packet) < 2 || resolverAddr == "" || serverKey == "" {
-		return
+		return false
 	}
 
 	key := resolverSampleKey{
@@ -77,23 +79,36 @@ func (c *Client) trackResolverSend(packet []byte, resolverAddr string, localAddr
 	}
 
 	var timeoutObservations []resolverTimeoutObservation
+	releasedInflight := false
 	c.resolverStatsMu.Lock()
 	if len(c.resolverPending) >= resolverPendingSoftCap {
-		timeoutObservations = c.pruneResolverSamplesLocked(sentAt)
+		timeoutObservations, releasedInflight = c.pruneResolverSamplesLocked(sentAt)
 		if overflow := len(c.resolverPending) - resolverPendingHardCap; overflow >= 0 {
-			c.evictResolverPendingLocked(overflow + 1)
+			if c.evictResolverPendingLocked(overflow + 1) {
+				releasedInflight = true
+			}
+		}
+	}
+	if existing, ok := c.resolverPending[key]; ok {
+		if c.releaseResolverSampleInflightLocked(existing) {
+			releasedInflight = true
 		}
 	}
 	c.resolverPending[key] = resolverSample{
-		serverKey: serverKey,
-		sentAt:    sentAt,
+		serverKey:   serverKey,
+		inflightKey: inflightKey,
+		sentAt:      sentAt,
 	}
 	c.resolverStatsMu.Unlock()
 
+	if releasedInflight {
+		c.signalResolverInflightSpace()
+	}
 	for _, observation := range timeoutObservations {
 		c.noteResolverTimeout(observation.serverKey, observation.at)
 	}
 	c.noteResolverSend(serverKey)
+	return true
 }
 
 func (c *Client) lookupResolverSample(packet []byte, addr *net.UDPAddr, localAddr string) (resolverSample, bool) {
@@ -126,11 +141,16 @@ func (c *Client) trackResolverSuccess(packet []byte, addr *net.UDPAddr, localAdd
 
 	c.resolverStatsMu.Lock()
 	sample, ok := c.resolverPending[key]
+	releasedInflight := false
 	if ok {
+		releasedInflight = c.releaseResolverSampleInflightLocked(sample)
 		delete(c.resolverPending, key)
 	}
 	c.resolverStatsMu.Unlock()
 
+	if releasedInflight {
+		c.signalResolverInflightSpace()
+	}
 	if !ok || sample.serverKey == "" {
 		return
 	}
@@ -155,11 +175,16 @@ func (c *Client) trackResolverFailure(packet []byte, addr *net.UDPAddr, localAdd
 
 	c.resolverStatsMu.Lock()
 	sample, ok := c.resolverPending[key]
+	releasedInflight := false
 	if ok {
+		releasedInflight = c.releaseResolverSampleInflightLocked(sample)
 		delete(c.resolverPending, key)
 	}
 	c.resolverStatsMu.Unlock()
 
+	if releasedInflight {
+		c.signalResolverInflightSpace()
+	}
 	if !ok || sample.serverKey == "" {
 		return
 	}
@@ -175,8 +200,11 @@ func (c *Client) collectExpiredResolverTimeouts(now time.Time) {
 		return
 	}
 	c.resolverStatsMu.Lock()
-	timeoutObservations := c.pruneResolverSamplesLocked(now)
+	timeoutObservations, releasedInflight := c.pruneResolverSamplesLocked(now)
 	c.resolverStatsMu.Unlock()
+	if releasedInflight {
+		c.signalResolverInflightSpace()
+	}
 	for _, observation := range timeoutObservations {
 		c.noteResolverTimeout(observation.serverKey, observation.at)
 	}
@@ -217,9 +245,9 @@ func (c *Client) resolverLateResponseGrace(timeout time.Duration) time.Duration 
 	return grace
 }
 
-func (c *Client) pruneResolverSamplesLocked(now time.Time) []resolverTimeoutObservation {
+func (c *Client) pruneResolverSamplesLocked(now time.Time) ([]resolverTimeoutObservation, bool) {
 	if c == nil || len(c.resolverPending) == 0 {
-		return nil
+		return nil, false
 	}
 
 	timeoutBefore := now.Add(-c.resolverRequestTimeout())
@@ -227,6 +255,7 @@ func (c *Client) pruneResolverSamplesLocked(now time.Time) []resolverTimeoutObse
 	requestTimeout := c.resolverRequestTimeout()
 	lateGrace := c.resolverLateResponseGrace(requestTimeout)
 	var timeoutObservations []resolverTimeoutObservation
+	releasedInflight := false
 	for key, sample := range c.resolverPending {
 		if !sample.timedOut {
 			if !sample.sentAt.After(timeoutBefore) {
@@ -236,6 +265,10 @@ func (c *Client) pruneResolverSamplesLocked(now time.Time) []resolverTimeoutObse
 					sample.timedOutAt = now
 				}
 				sample.evictAfter = sample.timedOutAt.Add(lateGrace)
+				if c.releaseResolverSampleInflightLocked(sample) {
+					sample.inflightReleased = true
+					releasedInflight = true
+				}
 				c.resolverPending[key] = sample
 				if sample.serverKey != "" {
 					timeoutObservations = append(timeoutObservations, resolverTimeoutObservation{
@@ -245,25 +278,34 @@ func (c *Client) pruneResolverSamplesLocked(now time.Time) []resolverTimeoutObse
 				}
 			}
 			if sample.sentAt.Before(absoluteCutoff) {
+				if c.releaseResolverSampleInflightLocked(sample) {
+					releasedInflight = true
+				}
 				delete(c.resolverPending, key)
 			}
 			continue
 		}
 
 		if !sample.evictAfter.IsZero() && !sample.evictAfter.After(now) {
+			if c.releaseResolverSampleInflightLocked(sample) {
+				releasedInflight = true
+			}
 			delete(c.resolverPending, key)
 			continue
 		}
 		if sample.sentAt.Before(absoluteCutoff) {
+			if c.releaseResolverSampleInflightLocked(sample) {
+				releasedInflight = true
+			}
 			delete(c.resolverPending, key)
 		}
 	}
-	return timeoutObservations
+	return timeoutObservations, releasedInflight
 }
 
-func (c *Client) evictResolverPendingLocked(evictCount int) {
+func (c *Client) evictResolverPendingLocked(evictCount int) bool {
 	if c == nil || evictCount <= 0 || len(c.resolverPending) == 0 {
-		return
+		return false
 	}
 
 	type pendingEntry struct {
@@ -292,7 +334,12 @@ func (c *Client) evictResolverPendingLocked(evictCount int) {
 	if evictCount > len(entries) {
 		evictCount = len(entries)
 	}
+	releasedInflight := false
 	for i := 0; i < evictCount; i++ {
+		if c.releaseResolverSampleInflightLocked(entries[i].sample) {
+			releasedInflight = true
+		}
 		delete(c.resolverPending, entries[i].key)
 	}
+	return releasedInflight
 }

@@ -73,6 +73,7 @@ func (c *Client) initResolverRecheckMeta() {
 
 	c.resolverStatsMu.Lock()
 	c.resolverPending = make(map[resolverSampleKey]resolverSample)
+	c.resolverInflight = make(map[string]int)
 	c.resolverStatsMu.Unlock()
 
 	c.resolverHealthMu.Lock()

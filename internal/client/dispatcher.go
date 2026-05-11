@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -9,6 +9,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"time"
 
@@ -79,6 +80,15 @@ func (c *Client) asyncStreamDispatcher(ctx context.Context) {
 				}
 			}
 			idleTimer.Reset(idlePoll)
+		}
+	}
+
+	waitForResolverCapacity := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-c.txWindowSignal:
+			return true
 		}
 	}
 
@@ -213,8 +223,21 @@ dispatchLoop:
 			continue
 		}
 
-		conns := c.selectTargetConnections(peekedItem.PacketType, selectedStreamID)
-		if len(conns) == 0 {
+		if !waitForTxCapacity(1) {
+			if ctx.Err() != nil {
+				return
+			}
+			continue dispatchLoop
+		}
+
+		conns, inflightKeys, reserveErr := c.reserveTargetConnectionsForPacket(peekedItem.PacketType, selectedStreamID)
+		if reserveErr != nil {
+			if errors.Is(reserveErr, ErrResolverInflightWindowFull) {
+				if !waitForResolverCapacity() {
+					return
+				}
+				continue dispatchLoop
+			}
 			// No valid connections available for this packet. Don't block the
 			// dispatcher — doing so would stall ALL streams until a resolver
 			// comes back. Instead, pop and discard non-retriable control packets
@@ -236,9 +259,8 @@ dispatchLoop:
 			}
 			continue dispatchLoop
 		}
-
-		if !waitForTxCapacity(1) {
-			if ctx.Err() != nil {
+		if len(conns) == 0 {
+			if !waitForWork() {
 				return
 			}
 			continue dispatchLoop
@@ -249,6 +271,7 @@ dispatchLoop:
 		if selected != nil {
 			item, _, ok = selected.PopNextTXPacket()
 			if !ok || item == nil {
+				c.releaseResolverInflightKeys(inflightKeys)
 				continue dispatchLoop
 			}
 		} else {
@@ -256,6 +279,7 @@ dispatchLoop:
 				return Enums.PacketTypeStreamKey(p.StreamID, p.PacketType)
 			})
 			if !ok {
+				c.releaseResolverInflightKeys(inflightKeys)
 				continue dispatchLoop
 			}
 			item = &clientStreamTXPacket{
@@ -270,6 +294,7 @@ dispatchLoop:
 		if selected != nil &&
 			(item.PacketType == Enums.PACKET_STREAM_DATA || item.PacketType == Enums.PACKET_STREAM_RESEND) &&
 			!c.shouldTransmitQueuedStreamPacket(selected, item) {
+			c.releaseResolverInflightKeys(inflightKeys)
 			selected.ReleaseTXPacket(item)
 			continue dispatchLoop
 		}
@@ -405,18 +430,20 @@ dispatchLoop:
 		}
 
 		task := rawOutboundTask{
-			packetType: finalPacketType,
-			payload:    finalPayload,
-			opts:       opts,
-			wasPacked:  wasPacked,
-			item:       item,
-			selected:   selected,
-			conns:      conns,
+			packetType:   finalPacketType,
+			payload:      finalPayload,
+			opts:         opts,
+			wasPacked:    wasPacked,
+			item:         item,
+			selected:     selected,
+			conns:        conns,
+			inflightKeys: inflightKeys,
 		}
 
 		select {
 		case c.txChannel <- task:
 		case <-ctx.Done():
+			c.releaseResolverInflightKeys(inflightKeys)
 			if !wasPacked && selected != nil {
 				selected.ReleaseTXPacket(item)
 			}

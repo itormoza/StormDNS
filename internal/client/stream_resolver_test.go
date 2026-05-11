@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // StormDNS
 // Author: nullroute1970
 // Github: https://github.com/nullroute1970/StormDNS
@@ -7,6 +7,8 @@
 package client
 
 import (
+	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -67,6 +69,86 @@ func TestSelectTargetConnectionsForPacketPrefersStickyStreamResolver(t *testing.
 	}
 	if selected[0].Key != "b" {
 		t.Fatalf("expected preferred resolver first, got=%q", selected[0].Key)
+	}
+}
+
+func mustUDPAddr(t *testing.T, addr string) *net.UDPAddr {
+	t.Helper()
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatalf("ResolveUDPAddr(%q) failed: %v", addr, err)
+	}
+	return udpAddr
+}
+
+func TestReserveTargetConnectionsForPacketHonorsResolverInflightWindow(t *testing.T) {
+	c := buildTestClientWithResolvers(config.ClientConfig{
+		SpeculativePipelineWindow:    1,
+		UploadPacketDuplicationCount: 1,
+	}, "a", "b")
+
+	stream := testStream(17)
+	stream.PreferredServerKey = "a"
+	c.active_streams[stream.StreamID] = stream
+
+	first, firstKeys, err := c.reserveTargetConnectionsForPacket(Enums.PACKET_STREAM_DATA, stream.StreamID)
+	if err != nil {
+		t.Fatalf("first reserve returned error: %v", err)
+	}
+	defer c.releaseResolverInflightKeys(firstKeys)
+	if len(first) != 1 || first[0].Key != "a" {
+		t.Fatalf("expected first reservation to use preferred resolver a, got=%+v", first)
+	}
+	if got := c.resolverInflightCount(firstKeys[0]); got != 1 {
+		t.Fatalf("expected preferred resolver in-flight count 1, got=%d", got)
+	}
+
+	second, secondKeys, err := c.reserveTargetConnectionsForPacket(Enums.PACKET_STREAM_DATA, stream.StreamID)
+	if err != nil {
+		t.Fatalf("second reserve returned error: %v", err)
+	}
+	defer c.releaseResolverInflightKeys(secondKeys)
+	if len(second) != 1 || second[0].Key != "b" {
+		t.Fatalf("expected second reservation to spill over to resolver b, got=%+v", second)
+	}
+
+	_, _, err = c.reserveTargetConnectionsForPacket(Enums.PACKET_STREAM_DATA, stream.StreamID)
+	if !errors.Is(err, ErrResolverInflightWindowFull) {
+		t.Fatalf("expected in-flight window error after all resolvers are full, got=%v", err)
+	}
+}
+
+func TestResolverInflightReservationReleasedOnResponseAndTimeout(t *testing.T) {
+	c := buildTestClientWithResolvers(config.ClientConfig{
+		SpeculativePipelineWindow:    1,
+		UploadPacketDuplicationCount: 1,
+	}, "a")
+	conn := c.connections[0]
+	inflightKey := resolverInflightKeyForConnection(conn)
+	addr := formatResolverEndpoint(conn.Resolver, conn.ResolverPort)
+	packet := []byte{0x12, 0x34}
+	now := time.Now()
+
+	if !c.tryReserveResolverInflight(inflightKey) {
+		t.Fatal("expected initial in-flight reservation")
+	}
+	if !c.trackResolverSend(packet, addr, "", conn.Key, inflightKey, now) {
+		t.Fatal("expected resolver send to be tracked")
+	}
+	c.trackResolverSuccess(packet, mustUDPAddr(t, addr), "", now.Add(50*time.Millisecond))
+	if got := c.resolverInflightCount(inflightKey); got != 0 {
+		t.Fatalf("expected response to release in-flight reservation, got=%d", got)
+	}
+
+	if !c.tryReserveResolverInflight(inflightKey) {
+		t.Fatal("expected second in-flight reservation")
+	}
+	if !c.trackResolverSend(packet, addr, "", conn.Key, inflightKey, now) {
+		t.Fatal("expected second resolver send to be tracked")
+	}
+	c.collectExpiredResolverTimeouts(now.Add(c.resolverRequestTimeout() + time.Millisecond))
+	if got := c.resolverInflightCount(inflightKey); got != 0 {
+		t.Fatalf("expected timeout to release in-flight reservation, got=%d", got)
 	}
 }
 

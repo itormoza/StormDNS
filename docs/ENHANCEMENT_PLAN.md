@@ -24,6 +24,8 @@
 
 ### 1A. Speculative Pipelining (Query Batching)
 
+**Status**: Completed.
+
 **Problem**: Currently each DNS query carries one VPN packet. The client waits for the dispatcher cycle to build and send each packet individually. On high-latency links (500ms+ RTT), this creates a hard throughput ceiling.
 
 **Proposal**: Allow the client to fire N queries in parallel without waiting for responses. The server already handles concurrent queries from different goroutines. The client should:

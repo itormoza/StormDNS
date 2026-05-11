@@ -92,6 +92,10 @@ func (c *Client) resetRuntimeBindings(resetSession bool) {
 	c.closeResolverConnPools()
 	c.clearTxSignal()
 	c.clearTxSpaceSignal()
+	c.clearResolverInflightSignal()
+	c.resolverStatsMu.Lock()
+	c.resolverInflight = make(map[string]int)
+	c.resolverStatsMu.Unlock()
 	c.clearSessionResetPending()
 	c.txTotalBytes.Store(0)
 	c.rxTotalBytes.Store(0)
@@ -434,6 +438,7 @@ func (c *Client) drainQueues() {
 	for {
 		select {
 		case task := <-c.txChannel:
+			c.releaseResolverInflightKeys(task.inflightKeys)
 			if !task.wasPacked && task.selected != nil && task.item != nil {
 				task.selected.ReleaseTXPacket(task.item)
 			}
@@ -445,6 +450,7 @@ drainEncoded:
 	for {
 		select {
 		case task := <-c.encodedTXChannel:
+			c.releaseResolverInflightKeys(task.inflightKeys)
 			if !task.wasPacked && task.selected != nil && task.item != nil {
 				task.selected.ReleaseTXPacket(task.item)
 			}
@@ -501,6 +507,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 			}
 
 			if len(task.conns) == 0 {
+				c.releaseResolverInflightKeys(task.inflightKeys)
 				if !task.wasPacked && task.selected != nil {
 					task.selected.ReleaseTXPacket(task.item)
 				}
@@ -509,6 +516,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 
 			encoded, err := c.buildEncodedAutoWithCompressionTrace(task.opts)
 			if err != nil {
+				c.releaseResolverInflightKeys(task.inflightKeys)
 				if !task.wasPacked && task.selected != nil {
 					task.selected.ReleaseTXPacket(task.item)
 				}
@@ -527,8 +535,13 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				clear(preparedDomainByName)
 			}
 			frames = frames[:0]
+			framedInflightKeys := task.inflightKeys[:0]
 
-			for _, resolverConn := range task.conns {
+			for idx, resolverConn := range task.conns {
+				inflightKey := ""
+				if idx < len(task.inflightKeys) {
+					inflightKey = task.inflightKeys[idx]
+				}
 				domain := resolverConn.Domain
 				if domain == "" {
 					domain = defaultDomain
@@ -537,6 +550,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 
 				addr, err := c.getResolverUDPAddr(resolverConn)
 				if err != nil {
+					c.releaseResolverInflight(inflightKey)
 					continue
 				}
 
@@ -544,6 +558,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				if !cachedPrepared {
 					prepared, err = prepareTunnelDomain(domain)
 					if err != nil {
+						c.releaseResolverInflight(inflightKey)
 						continue
 					}
 					if preparedDomainByName == nil {
@@ -557,6 +572,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				case firstDNSPacket == nil:
 					dnsPacket, err = buildTunnelQuestionBytesPrepared(prepared, encoded, qType)
 					if err != nil {
+						c.releaseResolverInflight(inflightKey)
 						continue
 					}
 					firstDomain = domain
@@ -574,6 +590,7 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 					if !cached {
 						dnsPacket, err = buildTunnelQuestionBytesPrepared(prepared, encoded, qType)
 						if err != nil {
+							c.releaseResolverInflight(inflightKey)
 							continue
 						}
 						packetByDomain[cacheKey] = dnsPacket
@@ -581,13 +598,16 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 				}
 
 				frames = append(frames, encodedOutboundDatagram{
-					addr:      addr,
-					serverKey: resolverConn.Key,
-					packet:    dnsPacket,
+					addr:        addr,
+					serverKey:   resolverConn.Key,
+					inflightKey: inflightKey,
+					packet:      dnsPacket,
 				})
+				framedInflightKeys = append(framedInflightKeys, inflightKey)
 			}
 
 			if len(frames) == 0 {
+				c.releaseResolverInflightKeys(framedInflightKeys)
 				if !task.wasPacked && task.selected != nil {
 					task.selected.ReleaseTXPacket(task.item)
 				}
@@ -595,15 +615,17 @@ func (c *Client) asyncEncodeWorker(ctx context.Context, id int) {
 			}
 
 			encodedTask := encodedOutboundTask{
-				wasPacked: task.wasPacked,
-				item:      task.item,
-				selected:  task.selected,
-				frames:    append([]encodedOutboundDatagram(nil), frames...),
+				wasPacked:    task.wasPacked,
+				item:         task.item,
+				selected:     task.selected,
+				frames:       append([]encodedOutboundDatagram(nil), frames...),
+				inflightKeys: append([]string(nil), framedInflightKeys...),
 			}
 
 			select {
 			case c.encodedTXChannel <- encodedTask:
 			case <-ctx.Done():
+				c.releaseResolverInflightKeys(framedInflightKeys)
 				if !task.wasPacked && task.selected != nil {
 					task.selected.ReleaseTXPacket(task.item)
 				}
@@ -643,11 +665,16 @@ func (c *Client) asyncWriterWorker(ctx context.Context, id int, conn *net.UDPCon
 			}
 			for _, frame := range task.frames {
 				if frame.addr == nil || len(frame.packet) == 0 {
+					c.releaseResolverInflight(frame.inflightKey)
 					continue
 				}
 				if _, err := conn.WriteToUDP(frame.packet, frame.addr); err == nil {
-					c.trackResolverSend(frame.packet, frame.addr.String(), localAddr, frame.serverKey, now)
+					if !c.trackResolverSend(frame.packet, frame.addr.String(), localAddr, frame.serverKey, frame.inflightKey, now) {
+						c.releaseResolverInflight(frame.inflightKey)
+					}
 					c.txTotalBytes.Add(uint64(len(frame.packet)))
+				} else {
+					c.releaseResolverInflight(frame.inflightKey)
 				}
 			}
 			if !task.wasPacked && task.selected != nil {
