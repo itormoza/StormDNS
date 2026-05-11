@@ -1249,6 +1249,149 @@ func TestARQ_Retransmission(t *testing.T) {
 	}
 }
 
+func TestARQ_TailLossProbeQueuesNewestOutstandingBeforeRTO(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize: 100,
+		RTO:        1.0,
+		MaxRTO:     2.0,
+	})
+
+	now := time.Now()
+	a.mu.Lock()
+	a.sndNxt = 3
+	a.dataAdaptiveRTO = adaptiveRTOState{
+		srtt:        50 * time.Millisecond,
+		rttvar:      10 * time.Millisecond,
+		currentBase: a.rto,
+		initialized: true,
+	}
+	for sn := uint16(0); sn < 3; sn++ {
+		a.sndBuf[sn] = &arqDataItem{
+			Data:            []byte{byte('a' + sn)},
+			CreatedAt:       now.Add(-time.Second),
+			LastSentAt:      now.Add(-120 * time.Millisecond),
+			Dispatched:      true,
+			CurrentRTO:      a.rto,
+			SampleEligible:  true,
+			CompressionType: 4,
+		}
+	}
+	a.mu.Unlock()
+
+	a.checkRetransmits()
+
+	select {
+	case p := <-enqueuer.Packets:
+		if p.packetType != Enums.PACKET_STREAM_RESEND {
+			t.Fatalf("expected TLP to queue STREAM_RESEND, got %s", Enums.PacketTypeName(p.packetType))
+		}
+		if p.sequenceNum != 2 {
+			t.Fatalf("expected TLP for newest outstanding seq 2, got %d", p.sequenceNum)
+		}
+		if p.compressionType != 4 {
+			t.Fatalf("expected TLP to preserve compression type 4, got %d", p.compressionType)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected tail loss probe packet")
+	}
+
+	a.mu.RLock()
+	info := a.sndBuf[2]
+	a.mu.RUnlock()
+	if info == nil {
+		t.Fatal("expected seq 2 to remain tracked")
+	}
+	if info.Retries != 0 {
+		t.Fatalf("expected TLP not to increment retries, got %d", info.Retries)
+	}
+	if info.CurrentRTO != a.rto {
+		t.Fatalf("expected TLP not to grow RTO, got %s", info.CurrentRTO)
+	}
+	if !info.TLPProbeSent {
+		t.Fatal("expected TLP probe flag to be set")
+	}
+	if info.SampleEligible {
+		t.Fatal("expected TLP to disable RTT sampling for retransmitted seq")
+	}
+}
+
+func TestARQ_TailLossProbeWaitsForSRTTDelay(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize: 100,
+		RTO:        1.0,
+		MaxRTO:     2.0,
+	})
+
+	now := time.Now()
+	a.mu.Lock()
+	a.sndNxt = 1
+	a.dataAdaptiveRTO = adaptiveRTOState{
+		srtt:        50 * time.Millisecond,
+		rttvar:      10 * time.Millisecond,
+		currentBase: a.rto,
+		initialized: true,
+	}
+	a.sndBuf[0] = &arqDataItem{
+		Data:           []byte("tail"),
+		CreatedAt:      now.Add(-time.Second),
+		LastSentAt:     now.Add(-50 * time.Millisecond),
+		Dispatched:     true,
+		CurrentRTO:     a.rto,
+		SampleEligible: true,
+	}
+	a.mu.Unlock()
+
+	a.checkRetransmits()
+
+	select {
+	case p := <-enqueuer.Packets:
+		t.Fatalf("expected no TLP before 2*SRTT, got %s seq=%d", Enums.PacketTypeName(p.packetType), p.sequenceNum)
+	default:
+	}
+}
+
+func TestARQ_RetransmitLoopSchedulesTailLossProbeBeforeRTO(t *testing.T) {
+	enqueuer := NewMockPacketEnqueuer()
+	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{
+		WindowSize: 100,
+		RTO:        1.0,
+		MaxRTO:     2.0,
+	})
+
+	now := time.Now()
+	a.mu.Lock()
+	a.sndNxt = 1
+	a.dataAdaptiveRTO = adaptiveRTOState{
+		srtt:        40 * time.Millisecond,
+		rttvar:      10 * time.Millisecond,
+		currentBase: a.rto,
+		initialized: true,
+	}
+	a.sndBuf[0] = &arqDataItem{
+		Data:           []byte("tail"),
+		CreatedAt:      now,
+		LastSentAt:     now,
+		Dispatched:     true,
+		CurrentRTO:     a.rto,
+		SampleEligible: true,
+	}
+	a.mu.Unlock()
+
+	a.Start()
+	defer a.Close("test end", CloseOptions{Force: true})
+
+	select {
+	case p := <-enqueuer.Packets:
+		if p.packetType != Enums.PACKET_STREAM_RESEND || p.sequenceNum != 0 {
+			t.Fatalf("expected background TLP resend for seq 0, got %s seq=%d", Enums.PacketTypeName(p.packetType), p.sequenceNum)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed out waiting for TLP before the 1s RTO")
+	}
+}
+
 func TestARQ_RetransmitPrioritiesFavorFrontWindow(t *testing.T) {
 	enqueuer := NewMockPacketEnqueuer()
 	a := NewARQ(1, 1, enqueuer, nil, 1000, &testLogger{t}, Config{

@@ -71,6 +71,7 @@ type arqDataItem struct {
 	LastSentAt      time.Time
 	Dispatched      bool
 	LastNackSentAt  time.Time
+	TLPProbeSent    bool
 	Retries         int
 	CurrentRTO      time.Duration
 	SampleEligible  bool
@@ -106,6 +107,7 @@ type rtxJob struct {
 	sn              uint16
 	data            []byte
 	compressionType uint8
+	tailLossProbe   bool
 }
 type rxPayload struct {
 	sn   uint16
@@ -537,6 +539,7 @@ const (
 	dataRetransmitRTOGrowthFactor    = 1.35
 	controlRetransmitRTOGrowthFactor = 1.25
 	setupControlRTOGrowthFactor      = 1.15
+	minRetransmitLoopInterval        = 10 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------
@@ -643,6 +646,67 @@ func (a *ARQ) currentDataBaseRTO() time.Duration {
 		return a.rto
 	}
 	return clampDuration(base, a.rto, a.maxRTO)
+}
+
+func (a *ARQ) tailLossProbeDelayLocked() time.Duration {
+	if !a.dataAdaptiveRTO.initialized || a.dataAdaptiveRTO.srtt <= 0 {
+		return 0
+	}
+
+	delay := 2 * a.dataAdaptiveRTO.srtt
+	if delay > a.maxRTO {
+		return a.maxRTO
+	}
+	return delay
+}
+
+func (a *ARQ) tailLossProbeStateLocked(now time.Time) (rtxJob, time.Duration, bool) {
+	delay := a.tailLossProbeDelayLocked()
+	if delay <= 0 || len(a.sndBuf) == 0 {
+		return rtxJob{}, 0, false
+	}
+
+	var (
+		latestSendAt time.Time
+		tailSN       uint16
+		tailInfo     *arqDataItem
+		tailDist     uint16
+		found        bool
+	)
+
+	for sn, info := range a.sndBuf {
+		if info == nil || !info.Dispatched || info.LastSentAt.IsZero() {
+			continue
+		}
+
+		if latestSendAt.IsZero() || info.LastSentAt.After(latestSendAt) {
+			latestSendAt = info.LastSentAt
+		}
+
+		dist := uint16(a.sndNxt - sn)
+		if !found || dist < tailDist {
+			tailSN = sn
+			tailInfo = info
+			tailDist = dist
+			found = true
+		}
+	}
+
+	if !found || latestSendAt.IsZero() || tailInfo.TLPProbeSent {
+		return rtxJob{}, 0, false
+	}
+
+	remaining := latestSendAt.Add(delay).Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	return rtxJob{
+		sn:              tailSN,
+		data:            tailInfo.Data,
+		compressionType: tailInfo.CompressionType,
+		tailLossProbe:   true,
+	}, remaining, true
 }
 
 func (a *ARQ) currentControlBaseRTO() time.Duration {
@@ -1253,6 +1317,7 @@ func (a *ARQ) retransmitLoop() {
 
 	for {
 		a.mu.Lock()
+		now := time.Now()
 		rtoFactor := a.rto
 		if a.enableControlReliability && a.controlRto < rtoFactor {
 			rtoFactor = a.controlRto
@@ -1261,11 +1326,20 @@ func (a *ARQ) retransmitLoop() {
 		baseInterval := max(rtoFactor/3, 50*time.Millisecond)
 
 		hasPending := len(a.sndBuf) > 0 || (a.enableControlReliability && len(a.controlSndBuf) > 0)
+		tlpDelay, hasTLP := func() (time.Duration, bool) {
+			_, delay, ok := a.tailLossProbeStateLocked(now)
+			return delay, ok
+		}()
 		a.mu.Unlock()
 
 		interval := baseInterval
 		if !hasPending {
 			interval = max(baseInterval*4, 100*time.Millisecond)
+		} else if hasTLP && tlpDelay < interval {
+			interval = tlpDelay
+		}
+		if interval < minRetransmitLoopInterval {
+			interval = minRetransmitLoopInterval
 		}
 
 		if !timer.Stop() {
@@ -2149,6 +2223,12 @@ func (a *ARQ) checkRetransmits() {
 			compressionType: info.CompressionType,
 		})
 	}
+
+	if !ttlExpired && !retryExceeded && len(jobs) == 0 {
+		if job, remaining, ok := a.tailLossProbeStateLocked(now); ok && remaining == 0 {
+			jobs = append(jobs, job)
+		}
+	}
 	a.mu.RUnlock()
 
 	if ttlExpired {
@@ -2165,7 +2245,7 @@ func (a *ARQ) checkRetransmits() {
 		priority := Enums.DefaultPacketPriority(Enums.PACKET_STREAM_DATA)
 		packetType := uint8(Enums.PACKET_STREAM_DATA)
 
-		if priorityKinds[i] {
+		if j.tailLossProbe || priorityKinds[i] {
 			priority = Enums.DefaultPacketPriority(Enums.PACKET_STREAM_RESEND)
 			packetType = uint8(Enums.PACKET_STREAM_RESEND)
 		}
@@ -2182,9 +2262,19 @@ func (a *ARQ) checkRetransmits() {
 		a.mu.Lock()
 		info, exists := a.sndBuf[j.sn]
 		if exists {
+			if j.tailLossProbe {
+				info.LastSentAt = now
+				info.Dispatched = false
+				info.TLPProbeSent = true
+				info.SampleEligible = false
+				a.mu.Unlock()
+				continue
+			}
+
 			dataFloor := a.currentDataBaseRTO()
 			info.LastSentAt = now
 			info.Dispatched = false
+			info.TLPProbeSent = false
 			info.Retries++
 			info.SampleEligible = false
 			grownRTO := time.Duration(float64(info.CurrentRTO) * dataRetransmitRTOGrowthFactor)

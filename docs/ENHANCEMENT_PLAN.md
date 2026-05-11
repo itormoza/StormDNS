@@ -71,6 +71,8 @@
 
 ### 2A. Response Payload Maximization
 
+**Status**: Completed.
+
 **Problem**: The server builds DNS responses but doesn't always fill them to capacity. If the server has data waiting for the client but the client hasn't asked (no query in flight), the data sits.
 
 **Proposal**: **Piggyback download data on every response**, even responses to control/ACK queries. Currently:
@@ -89,6 +91,8 @@ Implementation:
 ---
 
 ### 2B. Proactive Polling (Aggressive Download Fetch)
+
+**Status**: Completed.
 
 **Problem**: Download data only arrives when the client happens to send a query. If the client has nothing to upload, it relies on PING packets (200ms–15s interval) to poll for data. This creates download stalls.
 
@@ -128,6 +132,8 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 
 ### 3A. Faster NACK-Triggered Retransmit
 
+**Status**: Completed.
+
 **Problem**: Current NACK flow: client detects gap → waits `ARQ_DATA_NACK_INITIAL_DELAY_SECONDS` (0.4s) → sends NACK → server retransmits. That's 0.4s + RTT of wasted time per gap.
 
 **Proposal**:
@@ -142,6 +148,8 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 ---
 
 ### 3B. Proactive Retransmit (Tail Loss Probe)
+
+**Status**: Completed.
 
 **Problem**: If the last packet(s) in a burst are lost, there's no incoming ACK to trigger retransmit. The sender must wait for the full RTO timer to expire.
 
@@ -495,6 +503,8 @@ DOWNLOAD_POLL_MAX_OUTSTANDING = 4
 ---
 
 ## Quick Wins (Config-Only, No Code Changes)
+
+**Status**: Completed.
 
 These tuning changes can be applied immediately to existing builds:
 
