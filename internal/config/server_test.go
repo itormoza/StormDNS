@@ -120,14 +120,20 @@ SOCKS_CONNECT_TIMEOUT = 0
 		t.Fatalf("LoadServerConfig returned error: %v", err)
 	}
 
-	expectedReaders := min(max(runtime.NumCPU(), 2), 8)
+	expectedReaders := min(max(runtime.NumCPU(), 4), 8)
 	if cfg.UDPReaders != expectedReaders {
 		t.Fatalf("unexpected UDP_READERS fallback: got=%d want=%d", cfg.UDPReaders, expectedReaders)
 	}
 
-	expectedWorkers := min(max(runtime.NumCPU()*2, 4), 32)
+	expectedWorkers := min(max(runtime.NumCPU()*2, 8), 32)
 	if cfg.DNSRequestWorkers != expectedWorkers {
 		t.Fatalf("unexpected DNS_REQUEST_WORKERS fallback: got=%d want=%d", cfg.DNSRequestWorkers, expectedWorkers)
+	}
+	if cfg.UDPReaders < 4 {
+		t.Fatalf("UDP_READERS fallback regressed below old fixed default: got=%d", cfg.UDPReaders)
+	}
+	if cfg.DNSRequestWorkers < 8 {
+		t.Fatalf("DNS_REQUEST_WORKERS fallback regressed below old fixed default: got=%d", cfg.DNSRequestWorkers)
 	}
 
 	if cfg.SessionTimeoutSecs != 300.0 {

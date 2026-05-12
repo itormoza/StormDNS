@@ -557,8 +557,8 @@ IDهای رمزنگاری:
 | --- | --- | --- |
 | `UDP_HOST` | آدرس bind برای ورودی DNS tunnel. | اگر خالی باشد `0.0.0.0` می‌شود. |
 | `UDP_PORT` | port UDP برای ورودی DNS tunnel. | باید `1..65535` باشد؛ deployment عمومی معمولاً `53` است. |
-| `UDP_READERS` | تعداد goroutineهای خواندن UDP. | مقدار `<= 0` از default خودکار با سقف `8` استفاده می‌کند. |
-| `DNS_REQUEST_WORKERS` | تعداد workerهای پردازش DNS request parseشده. | مقدار `<= 0` از default خودکار با سقف `32` استفاده می‌کند. |
+| `UDP_READERS` | تعداد goroutineهای خواندن UDP. | مقدار `<= 0` از default خودکار با حداقل `4` و سقف `8` استفاده می‌کند. |
+| `DNS_REQUEST_WORKERS` | تعداد workerهای پردازش DNS request parseشده. | مقدار `<= 0` از default خودکار با حداقل `8` و سقف `32` استفاده می‌کند. |
 | `MAX_CONCURRENT_REQUESTS` | اندازه queue جلوی workerهای DNS request. | وقتی queue پر شود packetها drop می‌شوند و overload log با rate limit ثبت می‌شود. |
 | `SOCKET_BUFFER_SIZE` | اندازه buffer خواندن/نوشتن socket UDP بر حسب byte. | buffer بزرگ‌تر burstها را بهتر جذب می‌کند، البته محدود به تنظیمات OS است. |
 | `MAX_PACKET_SIZE` | حداکثر اندازه packet buffer در pool سرور. | مقدار `<= 0` به `65535` برمی‌گردد. |

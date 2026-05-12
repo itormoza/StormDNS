@@ -51,11 +51,11 @@ UDP_HOST = "0.0.0.0"
 UDP_PORT = 53
 
 # Number of UDP reader goroutines.
-# If <= 0, code falls back to an auto default capped at 8.
+# If <= 0, code falls back to an auto default with minimum 4 and cap 8.
 UDP_READERS = 0
 
 # Number of DNS request workers that process incoming packets.
-# If <= 0, code falls back to an auto default capped at 32.
+# If <= 0, code falls back to an auto default with minimum 8 and cap 32.
 DNS_REQUEST_WORKERS = 0
 
 # Maximum queued requests waiting behind request workers.

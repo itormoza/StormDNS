@@ -110,11 +110,11 @@ type ServerConfigFlagBinder struct {
 }
 
 func defaultServerUDPReaders() int {
-	return min(max(runtime.NumCPU(), 2), 8)
+	return min(max(runtime.NumCPU(), 4), 8)
 }
 
 func defaultServerRequestWorkers() int {
-	return min(max(runtime.NumCPU()*2, 4), 32)
+	return min(max(runtime.NumCPU()*2, 8), 32)
 }
 
 func defaultServerConfig() ServerConfig {

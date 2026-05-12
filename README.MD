@@ -559,8 +559,8 @@ listed below.
 | --- | --- | --- |
 | `UDP_HOST` | UDP bind address for DNS tunnel ingress. | Defaults to `0.0.0.0` when empty. |
 | `UDP_PORT` | UDP bind port for DNS tunnel ingress. | Must be `1..65535`; public deployments normally use `53`. |
-| `UDP_READERS` | Number of UDP reader goroutines. | Values `<= 0` use an auto default capped at `8`. |
-| `DNS_REQUEST_WORKERS` | Number of workers processing parsed DNS requests. | Values `<= 0` use an auto default capped at `32`. |
+| `UDP_READERS` | Number of UDP reader goroutines. | Values `<= 0` use an auto default with minimum `4` and cap `8`. |
+| `DNS_REQUEST_WORKERS` | Number of workers processing parsed DNS requests. | Values `<= 0` use an auto default with minimum `8` and cap `32`. |
 | `MAX_CONCURRENT_REQUESTS` | Queue size in front of DNS request workers. | Full queues drop packets and emit rate-limited overload logs. |
 | `SOCKET_BUFFER_SIZE` | UDP socket read/write buffer size in bytes. | Larger buffers absorb bursts, subject to OS limits. |
 | `MAX_PACKET_SIZE` | Maximum packet buffer size allocated by the server pool. | Values `<= 0` fall back to `65535`. |
