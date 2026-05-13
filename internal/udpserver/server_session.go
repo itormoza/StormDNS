@@ -291,13 +291,6 @@ func (s *Server) serveQueuedOrPong(questionPacket []byte, requestName string, ca
 
 	sessionID := record.ID
 
-	// 2A: Piggyback download data — prefer a pending data packet over a bare
-	// ACK/control response so that every DNS round-trip advances the download.
-	// Control packets (ACKs, RSTs, …) will be served on the next inbound query.
-	if pkt, ok := s.dequeueSessionDataPacket(sessionID); ok {
-		return s.buildSessionVPNResponse(questionPacket, requestName, carrierType, record, *pkt)
-	}
-
 	if pkt, ok := s.dequeueSessionResponse(sessionID, now); ok {
 		return s.buildSessionVPNResponse(questionPacket, requestName, carrierType, record, *pkt)
 	}
@@ -307,81 +300,6 @@ func (s *Server) serveQueuedOrPong(questionPacket []byte, requestName string, ca
 		PacketType: Enums.PACKET_PONG,
 		Payload:    payload[:],
 	})
-}
-
-// dequeueSessionDataPacket returns the next pending download data packet
-// (PACKET_STREAM_DATA or PACKET_STREAM_RESEND) from any active non-zero stream,
-// honouring the session's round-robin cursor for fairness between streams.
-// It skips stream 0 (the virtual control stream) and skips stale sequences.
-// This is the server-side half of enhancement 2A (piggyback download data).
-func (s *Server) dequeueSessionDataPacket(sessionID uint8) (*VpnProto.Packet, bool) {
-	record, ok := s.sessions.Get(sessionID)
-	if !ok {
-		return nil, false
-	}
-
-	record.mu.RLock()
-	rrStreamID := record.RRStreamID
-	record.mu.RUnlock()
-
-	readyIDs, readyStreams := record.activeStreamSnapshot()
-	if len(readyIDs) == 0 {
-		return nil, false
-	}
-
-	// Determine the round-robin start index (same cursor used by dequeueSessionResponse).
-	startIdx := 0
-	for i, id := range readyIDs {
-		if id >= rrStreamID {
-			startIdx = i
-			break
-		}
-	}
-
-	n := len(readyIDs)
-	for i := 0; i < n; i++ {
-		idx := (startIdx + i) % n
-		id := readyIDs[idx]
-		stream := readyStreams[idx]
-
-		// Skip stream 0 — it is the virtual control stream.
-		if id == 0 {
-			continue
-		}
-
-		if stream == nil || stream.TXQueue == nil || stream.FastTXQueueSize() == 0 {
-			continue
-		}
-		if stream.ARQ != nil && stream.ARQ.IsClosed() {
-			continue
-		}
-
-		// Peek-and-pop: only take data packets (scan all priority levels).
-		popped, popOk := stream.PopAnyTXPacket(5, func(p *serverStreamTXPacket) bool {
-			return p.PacketType == Enums.PACKET_STREAM_DATA || p.PacketType == Enums.PACKET_STREAM_RESEND
-		})
-		if !popOk {
-			continue
-		}
-		stream.NoteTXPacketDequeued(popped)
-
-		// Discard stale sequences (ARQ already moved past this seq).
-		if stream.ARQ != nil && !stream.ARQ.HasPendingSequence(popped.SequenceNum) {
-			putTXPacketToPool(popped)
-			continue
-		}
-
-		// Advance the RR cursor so the next dequeue starts from the following stream.
-		record.mu.Lock()
-		record.RRStreamID = id + 1
-		record.mu.Unlock()
-
-		pkt := vpnPacketFromTX(popped, uint16(id))
-		putTXPacketToPool(popped)
-		return &pkt, true
-	}
-
-	return nil, false
 }
 
 func (s *Server) dequeueSessionResponse(sessionID uint8, now time.Time) (*VpnProto.Packet, bool) {

@@ -15,6 +15,7 @@ import (
 
 	"stormdns-go/internal/arq"
 	"stormdns-go/internal/config"
+	DnsParser "stormdns-go/internal/dnsparser"
 	Enums "stormdns-go/internal/enums"
 	fragmentStore "stormdns-go/internal/fragmentstore"
 	"stormdns-go/internal/mlq"
@@ -352,6 +353,50 @@ func TestDequeueSessionResponseScansActiveStreams(t *testing.T) {
 	}
 	if pkt.PacketType != Enums.PACKET_STREAM_CONNECTED || pkt.StreamID != 1 || pkt.SequenceNum != 12 {
 		t.Fatalf("unexpected dequeued packet: %#v", pkt)
+	}
+}
+
+func TestServeQueuedOrPongPreservesCriticalControlBeforeData(t *testing.T) {
+	s := &Server{
+		sessions: newSessionStore(8, 32),
+	}
+
+	record := newTestSessionRecord(45)
+	stream := record.getOrCreateStream(1, arq.Config{}, nil, nil)
+	if stream == nil {
+		t.Fatal("expected stream to be created")
+	}
+
+	// This test isolates queue selection, so avoid ARQ pending-sequence checks.
+	stream.ARQ = nil
+
+	if !stream.PushTXPacket(Enums.DefaultPacketPriority(Enums.PACKET_STREAM_DATA), Enums.PACKET_STREAM_DATA, 77, 0, 0, 0, 0, []byte("payload")) {
+		t.Fatal("expected data packet to queue")
+	}
+	if !stream.PushTXPacket(Enums.DefaultPacketPriority(Enums.PACKET_STREAM_CLOSE_READ_ACK), Enums.PACKET_STREAM_CLOSE_READ_ACK, 12, 0, 0, 0, 0, nil) {
+		t.Fatal("expected critical control packet to queue")
+	}
+
+	s.sessions.byID[record.ID] = record
+	view := record.runtimeView()
+	query, err := DnsParser.BuildTunnelQuestionPacket("v.example.com", []byte("abc"), Enums.DNS_RECORD_TYPE_TXT, 4096)
+	if err != nil {
+		t.Fatalf("BuildTunnelQuestionPacket returned error: %v", err)
+	}
+
+	response := s.serveQueuedOrPong(query, "abc.v.example.com", Enums.DNS_RECORD_TYPE_TXT, &view, time.Now())
+	if len(response) == 0 {
+		t.Fatal("expected a DNS response")
+	}
+
+	packet, err := DnsParser.ExtractVPNCarrierResponse(response, DnsParser.ExtractVPNResponseOptions{
+		CarrierType: Enums.DNS_RECORD_TYPE_TXT,
+	})
+	if err != nil {
+		t.Fatalf("ExtractVPNCarrierResponse returned error: %v", err)
+	}
+	if packet.PacketType != Enums.PACKET_STREAM_CLOSE_READ_ACK {
+		t.Fatalf("expected critical control before data, got %s", Enums.PacketTypeName(packet.PacketType))
 	}
 }
 

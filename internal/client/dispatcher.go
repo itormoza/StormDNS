@@ -88,8 +88,16 @@ func (c *Client) asyncStreamDispatcher(ctx context.Context) {
 		case <-ctx.Done():
 			return false
 		case <-c.txWindowSignal:
-			return true
+		case <-idleTimer.C:
 		}
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idlePoll)
+		return true
 	}
 
 dispatchLoop:
